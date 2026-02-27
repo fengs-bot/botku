@@ -213,32 +213,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         original_text = text
         text_lower = text.lower()
 
-        # Debug: konfirmasi pesan masuk
-        print(f"DEBUG: Pesan masuk: '{text}' dari {update.message.from_user.first_name}")
+        user_name = update.message.from_user.first_name
+        print(f"DEBUG: Pesan masuk dari {user_name}: '{original_text}'")
 
-        # 0. Pesan non-transaksi → balas ramah
-        if len(text_lower.split()) <= 1 or not any(w in text_lower for w in ["rb", "jt", "k", "000", "transfer", "kirim", "ke", "income"]):
+        # 0. Pesan terlalu pendek atau chit-chat → balas ramah
+        if len(text_lower.split()) <= 1 or text_lower in ["halo", "hai", "tes", "test", "ok", "bro"]:
             await update.message.reply_text(
-                "Halo bro! Mau catat apa nih?\n"
-                "Contoh transaksi:\n"
-                "• BCA 50rb makan\n"
-                "• gopay 1jt gaji\n"
-                "• transfer bca 200rb ke dana\n"
-                "\nAtau coba /saldo /chart"
+                f"Halo {user_name}! 👋\n"
+                "Mau catat transaksi apa hari ini?\n\n"
+                "Contoh cepat:\n"
+                "• BCA 75rb makan warteg\n"
+                "• gopay 2jt gaji\n"
+                "• transfer mandiri 300rb ke dana bayar tagihan\n\n"
+                "Atau ketik /saldo /chart /hapus"
             )
             return
 
         categories = load_categories()
         if not categories:
-            await update.message.reply_text("Kategori ga bisa di-load bro, cek sheet Categories ya")
+            await update.message.reply_text("Maaf bro, kategori ga bisa di-load. Cek sheet Categories ya.")
             return
 
-        # 1. Deteksi transfer dulu (lebih prioritas)
-        if any(kw in text_lower for kw in ["transfer", "kirim", "ke"]):
-            parts = text_lower.split()
+        # 1. Deteksi transfer dulu (prioritas tinggi)
+        transfer_keywords = ["transfer", "kirim", "ke", "tujuan", "ke ", "kirim ke", "transfer ke"]
+        if any(kw in text_lower for kw in transfer_keywords):
+            # Parsing nominal
             nominal = None
             nominal_idx = -1
-            for i, p in enumerate(parts):
+            for i, p in enumerate(text_lower.split()):
                 try:
                     nominal = parse_nominal(p)
                     nominal_idx = i
@@ -247,62 +249,88 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     continue
 
             if nominal is None:
-                await update.message.reply_text("Nominal transfernya mana bro? Contoh: transfer bca 500rb ke gopay")
+                await update.message.reply_text("Nominal transfernya mana bro? Contoh: transfer BCA 500rb ke GOPAY")
                 return
 
-            # Cari akun asal & tujuan
+            # Cari akun asal & tujuan dengan fuzzy + posisi
+            possible_accounts = []
+            for p in text_lower.split():
+                if account_exists(p.upper()):
+                    possible_accounts.append(p.upper())
+
             from_acc = None
             to_acc = None
 
-            # Cari kata kunci tujuan
-            ke_idx = -1
-            for kw in ["ke", "ke ", "kirim ke", "transfer ke", "tujuan"]:
-                if kw in text_lower:
-                    ke_idx = text_lower.find(kw) // len(parts[0])  # approx index
-                    break
-
-            if ke_idx != -1 and nominal_idx < len(parts) - 1:
-                to_candidate = parts[-1].upper()
-                if account_exists(to_candidate):
-                    to_acc = to_candidate
-
-            # Akun asal biasanya sebelum nominal
+            # Logika pintar: akun sebelum nominal biasanya asal, setelah "ke" biasanya tujuan
             if nominal_idx > 0:
-                from_candidate = parts[nominal_idx - 1].upper()
+                from_candidate = text_lower.split()[nominal_idx - 1].upper()
                 if account_exists(from_candidate):
                     from_acc = from_candidate
 
-            # Fallback ambil dua akun yang mungkin
-            possible_accounts = [p.upper() for p in parts if account_exists(p.upper())]
-            if len(possible_accounts) >= 2:
+            # Cari posisi "ke" atau keyword tujuan
+            ke_pos = -1
+            for kw in transfer_keywords:
+                if kw in text_lower:
+                    ke_pos = text_lower.find(kw)
+                    break
+
+            if ke_pos != -1:
+                remaining = text_lower[ke_pos + len(kw):].strip().split()
+                if remaining:
+                    to_candidate = remaining[0].upper()
+                    if account_exists(to_candidate):
+                        to_acc = to_candidate
+
+            # Fallback: ambil dua akun pertama yang ditemukan
+            if not from_acc and not to_acc and len(possible_accounts) >= 2:
                 from_acc = possible_accounts[0]
                 to_acc = possible_accounts[1]
+            elif not to_acc and len(possible_accounts) >= 1:
+                to_acc = possible_accounts[-1]  # terakhir biasanya tujuan
 
             if not from_acc or not to_acc:
                 await update.message.reply_text(
-                    f"Ga nemu akunnya bro. Pastiin {from_acc or 'asal'} dan {to_acc or 'tujuan'} ada di sheet Account.\n"
-                    "Contoh: transfer BCA 500rb ke GOPAY"
+                    f"Akun asal/tujuan ga ketemu bro.\n"
+                    f"Akun yang dikenal: {', '.join([a for a in possible_accounts]) or 'belum ada'}\n"
+                    "Contoh benar: transfer BCA 500rb ke GOPAY"
                 )
                 return
 
-            if get_current_balance(from_acc) < nominal:
-                await update.message.reply_text(f"Saldo {from_acc} kurang bro (Rp {get_current_balance(from_acc):,}) ❌")
+            current_balance = get_current_balance(from_acc)
+            if current_balance < nominal:
+                await update.message.reply_text(
+                    f"Saldo {from_acc} kurang bro 😔\n"
+                    f"Sekarang: Rp {current_balance:,}\n"
+                    f"Butuh: Rp {nominal:,}\n"
+                    f"Kurang: Rp {nominal - current_balance:,}"
+                )
                 return
 
             tanggal = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            nama = update.message.from_user.first_name
+            nama = user_name
 
-            transaksi_sheet.append_row([tanggal, nama, from_acc, "Expenses", "Financial", "Transfer", nominal, f"Transfer ke {to_acc}"])
-            transaksi_sheet.append_row([tanggal, nama, to_acc, "Income", "Financial", "Transfer", nominal, f"Transfer dari {from_acc}"])
+            # Catat Expenses & Income
+            transaksi_sheet.append_row([
+                tanggal, nama, from_acc, "Expenses", "Financial", "Transfer", nominal, f"Transfer ke {to_acc} ({original_text})"
+            ])
+            transaksi_sheet.append_row([
+                tanggal, nama, to_acc, "Income", "Financial", "Transfer", nominal, f"Transfer dari {from_acc} ({original_text})"
+            ])
+
+            new_balance_from = get_current_balance(from_acc)
+            new_balance_to = get_current_balance(to_acc)
 
             await update.message.reply_text(
-                f"Transfer sukses bro! 💸\n"
-                f"{nominal:,} dari {from_acc} ke {to_acc}\n"
-                f"Saldo {from_acc} sekarang: Rp {get_current_balance(from_acc):,}"
+                f"Transfer berhasil bro! 🔥\n"
+                f"Rp {nominal:,} dari {from_acc} → {to_acc}\n"
+                f"Deskripsi: {original_text}\n\n"
+                f"Saldo sekarang:\n"
+                f"• {from_acc}: Rp {new_balance_from:,}\n"
+                f"• {to_acc}: Rp {new_balance_to:,}"
             )
             return
 
-        # 2. Mode transaksi biasa (pengeluaran / pemasukan)
+        # 2. Transaksi biasa (pengeluaran/pemasukan)
         parts = text_lower.split()
         nominal = None
         nominal_idx = -1
@@ -315,76 +343,111 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 continue
 
         if nominal is None:
-            await update.message.reply_text("Nominal ga kebaca bro. Contoh: 500rb atau 1jt")
+            await update.message.reply_text("Nominalnya ga kebaca bro. Contoh: 500rb, 1jt, 75000")
             return
 
-        # Akun: cari yang match di sheet Account
-        possible_accounts = [p.upper() for p in parts if account_exists(p.upper())]
+        # Cari akun dengan fuzzy (toleransi typo kecil)
+        possible_accounts = []
+        for p in parts:
+            if account_exists(p.upper()):
+                possible_accounts.append(p.upper())
+
         if not possible_accounts:
-            await update.message.reply_text("Akun ga ketemu. Pastiin nama akun sama persis di sheet Account")
+            await update.message.reply_text("Akun ga ketemu bro. Pastiin nama akun sama dengan di sheet Account.")
             return
 
-        account = possible_accounts[0]  # ambil pertama, kalau banyak bisa tambah klarifikasi nanti
+        account = possible_accounts[0]  # ambil yang pertama, kalau banyak bisa tambah pilihan nanti
 
-        # Kategori: fuzzy match + gabung 2-3 kata kalau perlu
-        remaining_text = " ".join(parts[:nominal_idx] + parts[nominal_idx+1:])
-        remaining_words = remaining_text.split()
+        # Kategori: fuzzy + gabung kata
+        remaining = " ".join(parts[:nominal_idx] + parts[nominal_idx+1:])
+        remaining_words = remaining.split()
 
         best_cat = None
         best_score = 0.0
+        best_match_text = ""
+
         for cat in categories:
             sub_lower = cat["sub"].lower()
-            # Exact match atau fuzzy per kata
+            # Per kata
             for word in remaining_words:
                 score = difflib.SequenceMatcher(None, word, sub_lower).ratio()
-                if score > best_score and score > 0.65:  # threshold lebih longgar
+                if score > best_score and score > 0.68:  # threshold pro
                     best_score = score
                     best_cat = cat
-            # Coba gabung 2-3 kata terakhir
-            if len(remaining_words) >= 2:
-                combined2 = " ".join(remaining_words[-2:])
-                if combined2 in sub_lower:
-                    best_cat = cat
-                    break
+                    best_match_text = word
+
+            # Gabung 2-3 kata
+            for n in range(2, 4):
+                if len(remaining_words) >= n:
+                    combined = " ".join(remaining_words[-n:])
+                    if combined in sub_lower or difflib.SequenceMatcher(None, combined, sub_lower).ratio() > 0.75:
+                        best_cat = cat
+                        best_match_text = combined
+                        break
 
         if best_cat is None:
             await update.message.reply_text(
-                f"Kategori '{remaining_text}' ga ketemu bro.\n"
-                f"Cek sheet Categories atau coba kata kunci seperti: makan, transport, gaji, belanja"
+                f"Kategori '{remaining}' ga ketemu bro 😅\n"
+                f"Coba pakai kata seperti: makan, transport, gaji, belanja, pulsa, tagihan\n"
+                "Atau cek sheet Categories untuk daftar lengkap."
             )
             return
 
-        # Deskripsi: sisa kata selain akun & nominal & kategori
-        description_parts = [w for w in remaining_words if w not in best_cat["sub"].lower() and w != account.lower()]
-        description = " ".join(description_parts).strip() or "-"
+        # Deskripsi: sisa kata selain akun, nominal, kategori
+        desc_parts = []
+        for w in remaining_words:
+            if w not in best_match_text.lower() and w not in account.lower():
+                desc_parts.append(w)
+        description = " ".join(desc_parts).strip() or original_text
 
-        # Cek saldo kalau expense
-        if best_cat["type"] == "Expenses" and get_current_balance(account) < nominal:
-            await update.message.reply_text(f"Saldo {account} kurang bro (Rp {get_current_balance(account):,}) ❌")
-            return
+        # Deteksi income kalau kategori Income
+        if best_cat["type"] == "Income":
+            tipe_display = "Pemasukan"
+        else:
+            current_balance = get_current_balance(account)
+            if current_balance < nominal:
+                await update.message.reply_text(
+                    f"Saldo {account} kurang bro 😔\n"
+                    f"Sekarang: Rp {current_balance:,}\n"
+                    f"Butuh: Rp {nominal:,}\n"
+                    f"Kurang: Rp {nominal - current_balance:,}\n"
+                    "Top up dulu ya!"
+                )
+                return
+            tipe_display = "Pengeluaran"
 
+        # Catat ke sheet
         tanggal = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        nama = update.message.from_user.first_name
+        nama = user_name
 
         transaksi_sheet.append_row([
             tanggal, nama, account, best_cat["type"],
-            best_cat["parent"], best_cat["sub"], nominal, description or original_text
+            best_cat["parent"], best_cat["sub"], nominal, description
         ])
 
-        reply = f"OK ✓ Tercatat!\n" \
-                f"Akun: {account}\n" \
-                f"Nominal: Rp {nominal:,}\n" \
-                f"Kategori: {best_cat['sub']} ({best_cat['type']})\n" \
-                f"Deskripsi: {description or '-'}\n" \
-                f"Saldo {account} sekarang: Rp {get_current_balance(account):,}"
-        
-        await update.message.reply_text(reply)
+        new_balance = get_current_balance(account)
+
+        await update.message.reply_text(
+            f"Transaksi berhasil tercatat bro! ✅\n\n"
+            f"• Akun: {account}\n"
+            f"• Tipe: {tipe_display}\n"
+            f"• Nominal: Rp {nominal:,}\n"
+            f"• Kategori: {best_cat['sub']} ({best_cat['parent']})\n"
+            f"• Deskripsi: {description}\n"
+            f"• Waktu: {tanggal}\n\n"
+            f"Saldo {account} sekarang: Rp {new_balance:,}"
+        )
 
     except Exception as e:
-        print(f"ERROR di handle_message: {str(e)}")
+        print(f"ERROR handle_message ({original_text}): {str(e)}")
         print(traceback.format_exc())
-        await update.message.reply_text(f"Waduh error bro: {str(e)}\nCoba ketik ulang atau /start dulu ya")
-        
+        await update.message.reply_text(
+            "Waduh ada error nih bro 😅\n"
+            f"{str(e)}\n\n"
+            "Coba ketik ulang atau kirim format sederhana dulu ya.\n"
+            "Kalau masih error, cek /start atau hubungi admin."
+        )
+
 # ================= APP =================
 app = ApplicationBuilder().token(TOKEN).build()
 
