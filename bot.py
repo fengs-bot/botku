@@ -168,43 +168,145 @@ async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 1:
-        await update.message.reply_text("Format: /chart 2024-06")
+        await update.message.reply_text(
+            "Format pro chart:\n"
+            "/chart [periode] [tipe] [filter]\n\n"
+            "Contoh:\n"
+            "• /chart 2025-02 → bar pengeluaran Feb 2025\n"
+            "• /chart 2025-02 pie → pie chart Feb\n"
+            "• /chart 2025 line → trend bulanan 2025\n"
+            "• /chart all expenses → semua pengeluaran\n"
+            "• /chart income 2025 → pemasukan 2025"
+        )
         return
 
-    period = context.args[0]
+    args = context.args
+    period = args[0].lower()
+    chart_type = 'bar'  # default
+    data_filter = 'expenses'  # default
+
+    if len(args) > 1:
+        if args[1] in ['bar', 'pie', 'line']:
+            chart_type = args[1]
+        elif args[1] in ['expenses', 'income', 'all']:
+            data_filter = args[1]
+
+    if len(args) > 2:
+        if args[2] in ['expenses', 'income', 'all']:
+            data_filter = args[2]
+
     try:
-        data = transaksi_sheet.get_all_values()[1:]
+        data = transaksi_sheet.get_all_values()[1:]  # skip header
+        if not data:
+            await update.message.reply_text("Belum ada data transaksi bro")
+            return
+
         category_totals = {}
+        monthly_trend = {}  # untuk line chart
 
         for row in data:
             if len(row) < 7:
                 continue
-            if row[0].startswith(period) and row[3] == "Expenses":
-                category = row[5]
-                try:
-                    amount = int(row[6])
-                    category_totals[category] = category_totals.get(category, 0) + amount
-                except:
-                    continue
+            date_str = row[0]
+            tipe = row[3]
+            category = row[5]
+            try:
+                amount = int(row[6])
+            except:
+                continue
 
-        if not category_totals:
-            await update.message.reply_text("Tidak ada data pengeluaran untuk periode tersebut.")
+            # Filter data sesuai request
+            if data_filter == 'expenses' and tipe != "Expenses":
+                continue
+            if data_filter == 'income' and tipe != "Income":
+                continue
+
+            # Proses periode
+            if period == 'all':
+                pass
+            elif '-' in period:  # YYYY-MM
+                if not date_str.startswith(period):
+                    continue
+            elif len(period) == 4 and period.isdigit():  # YYYY
+                if not date_str.startswith(period):
+                    continue
+            else:
+                await update.message.reply_text("Format periode salah. Gunakan YYYY-MM atau YYYY atau 'all'")
+                return
+
+            # Hitung total per kategori
+            category_totals[category] = category_totals.get(category, 0) + amount
+
+            # Trend bulanan untuk line chart
+            if chart_type == 'line':
+                month_key = date_str[:7]  # YYYY-MM
+                monthly_trend[month_key] = monthly_trend.get(month_key, 0) + amount
+
+        if not category_totals and chart_type != 'line':
+            await update.message.reply_text(f"Tidak ada data {data_filter} untuk periode '{period}'")
             return
 
-        plt.figure(figsize=(10, 6))
-        plt.bar(category_totals.keys(), category_totals.values())
-        plt.title(f"Pengeluaran {period}")
-        plt.xlabel("Kategori")
-        plt.ylabel("Nominal (Rp)")
-        plt.xticks(rotation=45, ha='right')
+        if chart_type == 'line' and not monthly_trend:
+            await update.message.reply_text(f"Tidak ada data trend untuk periode '{period}'")
+            return
+
+        # Warna custom per kategori (bisa ditambah sesuai sheet Categories)
+        colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEEAD', '#D4A5A5', '#9B59B6', '#3498DB']
+
+        plt.figure(figsize=(12, 7))
+
+        if chart_type == 'pie':
+            plt.pie(
+                category_totals.values(),
+                labels=category_totals.keys(),
+                autopct='%1.1f%%',
+                colors=colors[:len(category_totals)],
+                startangle=90,
+                shadow=True
+            )
+            plt.title(f"Distribusi {data_filter.capitalize()} - {period.upper()}")
+            plt.axis('equal')
+
+        elif chart_type == 'line':
+            sorted_months = sorted(monthly_trend.keys())
+            values = [monthly_trend[m] for m in sorted_months]
+            plt.plot(sorted_months, values, marker='o', linewidth=2, color='#1abc9c')
+            plt.fill_between(sorted_months, values, alpha=0.2, color='#1abc9c')
+            plt.title(f"Trend {data_filter.capitalize()} - {period.upper()}")
+            plt.xlabel("Bulan")
+            plt.ylabel("Nominal (Rp)")
+            plt.xticks(rotation=45)
+            plt.grid(True, linestyle='--', alpha=0.7)
+
+        else:  # bar default
+            sorted_items = sorted(category_totals.items(), key=lambda x: x[1], reverse=True)
+            cats, vals = zip(*sorted_items)
+            bars = plt.bar(cats, vals, color=colors[:len(cats)])
+            plt.bar_label(bars, fmt='{:,.0f}', padding=3)
+            plt.title(f"Pengeluaran per Kategori - {period.upper()}")
+            plt.xlabel("Kategori")
+            plt.ylabel("Nominal (Rp)")
+            plt.xticks(rotation=45, ha='right')
+            plt.grid(axis='y', linestyle='--', alpha=0.7)
+
         plt.tight_layout()
-        plt.savefig("chart.png")
+        filename = f"chart_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
         plt.close()
 
-        await update.message.reply_photo(photo=open("chart.png", "rb"))
-        os.remove("chart.png")  # bersihkan file setelah kirim
+        await update.message.reply_photo(
+            photo=open(filename, "rb"),
+            caption=f"Grafik {chart_type.upper()} {data_filter.capitalize()} periode {period}\n"
+                    f"Total: Rp {sum(category_totals.values() if chart_type != 'line' else monthly_trend.values()):,}"
+        )
+
+        # Bersihkan file setelah kirim
+        os.remove(filename)
+
     except Exception as e:
-        await update.message.reply_text(f"Error membuat chart: {str(e)}")
+        print(f"ERROR chart: {str(e)}")
+        print(traceback.format_exc())
+        await update.message.reply_text(f"Error bikin chart: {str(e)}\nCoba periode lain atau cek data di sheet")
 
 # ================= MESSAGE HANDLER =================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
