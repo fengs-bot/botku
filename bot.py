@@ -228,4 +228,4 @@ try:
 except Exception as e:
     print("Webhook crash:")
     print(traceback.format_exc())
-    raise
+    raise  # biar Railway tetep crash & logs jelas, jangan di-silent
