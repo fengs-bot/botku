@@ -16,7 +16,7 @@ from google.oauth2.service_account import Credentials
 # ================= ENV =================
 TOKEN = os.getenv("TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-PORT = int(os.environ.get("PORT", 8000))
+PORT = int(os.environ.get("PORT", 8080))
 
 if not TOKEN:
     raise ValueError("TOKEN environment variable tidak ditemukan!")
