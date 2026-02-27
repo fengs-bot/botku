@@ -307,6 +307,39 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"ERROR chart: {str(e)}")
         print(traceback.format_exc())
         await update.message.reply_text(f"Error bikin chart: {str(e)}\nCoba periode lain atau cek data di sheet")
+    async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = (
+        "Daftar fitur bot keuangan pro kamu:\n\n"
+        "1. Catat transaksi pengeluaran/pemasukan\n"
+        "   • BCA 75rb makan warteg\n"
+        "   • gopay 2jt gaji\n"
+        "   • mandiri 500rb tagihan listrik\n\n"
+        
+        "2. Transfer antar akun\n"
+        "   • transfer BCA 300rb ke GOPAY\n"
+        "   • kirim dana 100rb ke bca\n\n"
+        
+        "3. Cek saldo semua akun\n"
+        "   • /saldo\n\n"
+        
+        "4. Lihat grafik pengeluaran/pemasukan\n"
+        "   • /chart 2025-02\n"
+        "   • /chart 2025-02 pie\n"
+        "   • /chart 2025 line\n"
+        "   • /chart all expenses\n\n"
+        
+        "5. Hapus transaksi (pro)\n"
+        "   • /hapus 10  (hapus baris ke-10 di sheet)\n"
+        "   • /hapus terakhir\n\n"
+        
+        "Tips:\n"
+        "- Nominal bisa 50rb, 1jt, 75000, 2.5jt\n"
+        "- Akun & kategori harus persis seperti di sheet Account & Categories\n"
+        "- Pesan biasa seperti 'halo' ga diproses transaksi, tapi akan dibales ramah\n"
+        "\nKalau ada error atau saran, bilang aja ke admin ya! 💬"
+    )
+    await update.message.reply_text(help_text, parse_mode='Markdown')
+
 
 # ================= MESSAGE HANDLER =================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -557,6 +590,8 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("saldo", saldo))
 app.add_handler(CommandHandler("chart", chart))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+app.add_handler(CommandHandler("help", help_command))
+app.add_handler(CommandHandler("menu", help_command))  # alias biar mudah
 
 # Jalankan webhook dengan try-except supaya crash lebih jelas di logs
 try:
