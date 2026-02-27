@@ -1,14 +1,20 @@
-print("=== BOT MULAI JALAN DI RAILWAY ===")
-print("Python version:", sys.version)
-print("Current working dir:", os.getcwd())
-print("Env vars available:", list(os.environ.keys())[:10])  # cek 10 env var pertama
-print("TOKEN ada?", "TOKEN" in os.environ)
-
+import sys  # <-- TAMBAH BARIS INI
 import os
 import json
 import traceback
 import difflib
 from datetime import datetime
+
+# (sisa import lu seperti matplotlib.use('Agg'), telegram, dll)
+
+print("=== BOT MULAI JALAN DI RAILWAY ===")
+print("Python version:", sys.version)
+print("Current working dir:", os.getcwd())
+print("Env vars available:", list(os.environ.keys())[:10])  # 10 env pertama
+print("TOKEN ada?", "TOKEN" in os.environ)
+print("GOOGLE_CREDS ada?", "GOOGLE_CREDS" in os.environ)
+print("WEBHOOK_URL ada?", "WEBHOOK_URL" in os.environ)
+print("PORT from env:", os.environ.get("PORT", "tidak ada"))
 
 import matplotlib
 matplotlib.use('Agg')  # WAJIB untuk server tanpa display (Railway, Heroku, dll)
