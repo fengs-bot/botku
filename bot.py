@@ -1,23 +1,21 @@
-import sys  # <-- TAMBAH BARIS INI
+import sys
 import os
 import json
 import traceback
 import difflib
 from datetime import datetime
 
-# (sisa import lu seperti matplotlib.use('Agg'), telegram, dll)
-
 print("=== BOT MULAI JALAN DI RAILWAY ===")
 print("Python version:", sys.version)
 print("Current working dir:", os.getcwd())
-print("Env vars available:", list(os.environ.keys())[:10])  # 10 env pertama
+print("Env vars available:", list(os.environ.keys())[:10])
 print("TOKEN ada?", "TOKEN" in os.environ)
 print("GOOGLE_CREDS ada?", "GOOGLE_CREDS" in os.environ)
 print("WEBHOOK_URL ada?", "WEBHOOK_URL" in os.environ)
 print("PORT from env:", os.environ.get("PORT", "tidak ada"))
 
 import matplotlib
-matplotlib.use('Agg')  # WAJIB untuk server tanpa display (Railway, Heroku, dll)
+matplotlib.use('Agg')
 
 import matplotlib.pyplot as plt
 from telegram import Update
@@ -127,6 +125,7 @@ def find_category(input_category, categories):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Bot aktif 24 jam 🚀")
 
+
 async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         transaksi = transaksi_sheet.get_all_values()[1:]
@@ -166,6 +165,7 @@ async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Error saat ambil saldo: {str(e)}")
 
+
 async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 1:
         await update.message.reply_text(
@@ -202,7 +202,7 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         category_totals = {}
-        monthly_trend = {}  # untuk line chart
+        monthly_trend = {}
 
         for row in data:
             if len(row) < 7:
@@ -215,31 +215,27 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 continue
 
-            # Filter data sesuai request
             if data_filter == 'expenses' and tipe != "Expenses":
                 continue
             if data_filter == 'income' and tipe != "Income":
                 continue
 
-            # Proses periode
             if period == 'all':
                 pass
-            elif '-' in period:  # YYYY-MM
+            elif '-' in period:
                 if not date_str.startswith(period):
                     continue
-            elif len(period) == 4 and period.isdigit():  # YYYY
+            elif len(period) == 4 and period.isdigit():
                 if not date_str.startswith(period):
                     continue
             else:
                 await update.message.reply_text("Format periode salah. Gunakan YYYY-MM atau YYYY atau 'all'")
                 return
 
-            # Hitung total per kategori
             category_totals[category] = category_totals.get(category, 0) + amount
 
-            # Trend bulanan untuk line chart
             if chart_type == 'line':
-                month_key = date_str[:7]  # YYYY-MM
+                month_key = date_str[:7]
                 monthly_trend[month_key] = monthly_trend.get(month_key, 0) + amount
 
         if not category_totals and chart_type != 'line':
@@ -250,7 +246,6 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"Tidak ada data trend untuk periode '{period}'")
             return
 
-        # Warna custom per kategori (bisa ditambah sesuai sheet Categories)
         colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEEAD', '#D4A5A5', '#9B59B6', '#3498DB']
 
         plt.figure(figsize=(12, 7))
@@ -278,7 +273,7 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
             plt.xticks(rotation=45)
             plt.grid(True, linestyle='--', alpha=0.7)
 
-        else:  # bar default
+        else:  # bar
             sorted_items = sorted(category_totals.items(), key=lambda x: x[1], reverse=True)
             cats, vals = zip(*sorted_items)
             bars = plt.bar(cats, vals, color=colors[:len(cats)])
@@ -300,14 +295,15 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"Total: Rp {sum(category_totals.values() if chart_type != 'line' else monthly_trend.values()):,}"
         )
 
-        # Bersihkan file setelah kirim
         os.remove(filename)
 
     except Exception as e:
         print(f"ERROR chart: {str(e)}")
         print(traceback.format_exc())
         await update.message.reply_text(f"Error bikin chart: {str(e)}\nCoba periode lain atau cek data di sheet")
-    async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
         "Daftar fitur bot keuangan pro kamu:\n\n"
         "1. Catat transaksi pengeluaran/pemasukan\n"
@@ -581,7 +577,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{str(e)}\n\n"
             "Coba ketik ulang atau kirim format sederhana dulu ya.\n"
             "Kalau masih error, cek /start atau hubungi admin."
-        )
+
 
 # ================= APP =================
 app = ApplicationBuilder().token(TOKEN).build()
@@ -589,11 +585,10 @@ app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("saldo", saldo))
 app.add_handler(CommandHandler("chart", chart))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 app.add_handler(CommandHandler("help", help_command))
-app.add_handler(CommandHandler("menu", help_command))  # alias biar mudah
+app.add_handler(CommandHandler("menu", help_command))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Jalankan webhook dengan try-except supaya crash lebih jelas di logs
 try:
     print(f"Starting webhook on port {PORT} with URL: {WEBHOOK_URL}/{TOKEN}")
     app.run_webhook(
@@ -605,4 +600,4 @@ try:
 except Exception as e:
     print("Webhook crash:")
     print(traceback.format_exc())
-    raise  # biar Railway tetep crash & logs jelas, jangan di-silent
+    raise
