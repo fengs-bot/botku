@@ -577,7 +577,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{str(e)}\n\n"
             "Coba ketik ulang atau kirim format sederhana dulu ya.\n"
             "Kalau masih error, cek /start atau hubungi admin."
-
+        )
 
 # ================= APP =================
 app = ApplicationBuilder().token(TOKEN).build()
