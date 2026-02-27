@@ -1,3 +1,9 @@
+print("=== BOT MULAI JALAN DI RAILWAY ===")
+print("Python version:", sys.version)
+print("Current working dir:", os.getcwd())
+print("Env vars available:", list(os.environ.keys())[:10])  # cek 10 env var pertama
+print("TOKEN ada?", "TOKEN" in os.environ)
+
 import os
 import json
 import traceback
