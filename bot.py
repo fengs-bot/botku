@@ -1084,49 +1084,39 @@ async def tes_tombol(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 app.add_handler(CommandHandler("testombol", tes_tombol))
 
+# ================= MODE POLLING (STABIL DI RAILWAY) =================
 async def main():
     try:
+        # Load data awal
         load_allowed_users_sync()
-        print("Startup: Allowed users loaded.")
+        print("Startup: Allowed users loaded. MODE: POLLING")
 
-        base_url = WEBHOOK_URL.rstrip('/')
-        webhook_url = f"{base_url}/{TOKEN}"
-        print(f"Webhook URL final: {webhook_url}")
-        print(f"Port: {PORT}")
-
-        # Tambah ini: explicit allowed_updates + drop pending
-        print("Set webhook dengan allowed_updates full + drop pending...")
-        await app.bot.set_webhook(
-            url=webhook_url,
-            allowed_updates=Update.ALL_TYPES,  # <-- KRUSIAL: kirim SEMUA jenis update termasuk callback_query
-            drop_pending_updates=True          # <-- Hapus update lama biar ga numpuk
-        )
-        print("Webhook SET BERHASIL dengan semua update types!")
-
+        # Inisialisasi app
         await app.initialize()
         await app.start()
 
-        await app.updater.start_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=TOKEN,
-            webhook_url=webhook_url,
-            drop_pending_updates=True,         # <-- lagi biar aman
-            allowed_updates=Update.ALL_TYPES   # <-- pastiin di updater juga
+        print("=====================================")
+        print(" BOT BERJALAN DENGAN POLLING! 🚀 ")
+        print(" Callback tombol seharusnya masuk sekarang ")
+        print(" Test: /testombol lalu klik 'Klik Aku!' ")
+        print("=====================================")
+
+        # Jalankan polling
+        await app.updater.start_polling(
+            drop_pending_updates=True,          # bersihin update lama
+            allowed_updates=Update.ALL_TYPES,   # semua jenis update masuk
+            poll_interval=0.5,                  # cek update setiap 0.5 detik
+            timeout=10                          # timeout polling
         )
 
-        print("=====================================")
-        print(" BOT WEBHOOK FULL UPDATE TYPES! 🚀 ")
-        print(" Coba /testombol lagi lalu klik tombol ")
-        print("=====================================")
-
-        await asyncio.Event().wait()  # keep alive
+        # Tetap hidup selamanya
+        await asyncio.Event().wait()
 
     except Exception as e:
-        print("CRITICAL ERROR:")
+        print("ERROR SAAT POLLING:")
         print(traceback.format_exc())
         raise
 
-# Di akhir script
+
 if __name__ == "__main__":
     asyncio.run(main())
