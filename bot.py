@@ -444,8 +444,10 @@ async def laporan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Callback untuk inline keyboard
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()  # biar tombol ga stuck loading
+    print(f"DEBUG CALLBACK DITERIMA: data='{query.data}' dari user {update.effective_user.id}")  # <-- TAMBAH BARIS INI
 
+    await query.answer()  # ini penting biar tombol ga stuck "loading..." lama 
+    
     data = query.data
     print(f"DEBUG: Tombol diklik: {data} oleh user {update.effective_user.id}")
 
