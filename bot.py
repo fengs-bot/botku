@@ -757,51 +757,52 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         account = possible_accounts[0]  # ambil yang pertama, kalau banyak bisa tambah pilihan nanti
 
-# Auto-kategori pintar dari deskripsi (sebelum fuzzy)
-auto_cat = None
-desc_lower = description.lower() if 'description' in locals() else text_lower
-if any(kw in desc_lower for kw in ["grab", "gojek", "ojol", "maxim", "transport", "bensin"]):
-    auto_cat = next((c for c in categories if c["sub"].lower() == "transportasi"), None)
-elif any(kw in desc_lower for kw in ["shopee", "tokopedia", "lazada", "belanja", "online", "e-commerce"]):
-    auto_cat = next((c for c in categories if c["sub"].lower() == "belanja online"), None)
-elif any(kw in desc_lower for kw in ["gaji", "bonus", "honor", "pendapatan"]):
-    auto_cat = next((c for c in categories if c["sub"].lower() == "gaji"), None)
-elif any(kw in desc_lower for kw in ["makan", "warteg", "resto", "food", "kuliner"]):
-    auto_cat = next((c for c in categories if c["sub"].lower() == "makan"), None)
-
-if auto_cat:
-    best_cat = auto_cat
-    print(f"DEBUG: Auto-kategori match: {auto_cat['sub']} dari deskripsi '{description}'")
-
-else:
-    # Lanjut ke fuzzy match seperti biasa
-    # ... (kode fuzzy lu tetap ada di sini)
-        # Kategori: fuzzy + gabung kata
-        remaining = " ".join(parts[:nominal_idx] + parts[nominal_idx+1:])
-        remaining_words = remaining.split()
-
+        # Kategori: auto pintar dulu, baru fuzzy kalau ga match
         best_cat = None
         best_score = 0.0
         best_match_text = ""
 
-        for cat in categories:
-            sub_lower = cat["sub"].lower()
-            # Per kata
-            for word in remaining_words:
-                score = difflib.SequenceMatcher(None, word, sub_lower).ratio()
-                if score > best_score and score > 0.68:  # threshold pro
-                    best_score = score
-                    best_cat = cat
-                    best_match_text = word
+        # 1. Auto-kategori dari deskripsi / teks keseluruhan (sebelum fuzzy)
+        desc_lower = text_lower  # pakai teks full dulu, karena description belum ada
+        if any(kw in desc_lower for kw in ["grab", "gojek", "ojol", "maxim", "transport", "bensin", "ojek", "taksi"]):
+            best_cat = next((c for c in categories if "transport" in c["sub"].lower() or "transportasi" in c["sub"].lower()), None)
+        elif any(kw in desc_lower for kw in ["shopee", "tokopedia", "lazada", "belanja", "online", "shop", "e-commerce"]):
+            best_cat = next((c for c in categories if "belanja" in c["sub"].lower() or "online" in c["sub"].lower()), None)
+        elif any(kw in desc_lower for kw in ["gaji", "bonus", "honor", "pendapatan", "salary", "upah"]):
+            best_cat = next((c for c in categories if "gaji" in c["sub"].lower()), None)
+        elif any(kw in desc_lower for kw in ["makan", "warteg", "resto", "food", "kuliner", "nasi", "kopi"]):
+            best_cat = next((c for c in categories if "makan" in c["sub"].lower() or "makanan" in c["sub"].lower()), None)
+        elif any(kw in desc_lower for kw in ["pulsa", "kuota", "paket data", "internet", "telkomsel", "xl", "axis"]):
+            best_cat = next((c for c in categories if "pulsa" in c["sub"].lower() or "kuota" in c["sub"].lower()), None)
+        elif any(kw in desc_lower for kw in ["tagihan", "listrik", "pln", "air", "pdam", "bpjs"]):
+            best_cat = next((c for c in categories if "tagihan" in c["sub"].lower()), None)
 
-            # Gabung 2-3 kata
-            for n in range(2, 4):
-                if len(remaining_words) >= n:
-                    combined = " ".join(remaining_words[-n:])
-                    if combined in sub_lower or difflib.SequenceMatcher(None, combined, sub_lower).ratio() > 0.75:
+        if best_cat:
+            print(f"DEBUG: Auto-kategori match: {best_cat['sub']} dari teks '{text}'")
+        else:
+            # 2. Fuzzy match seperti biasa (kalau auto gagal)
+            remaining = " ".join(parts[:nominal_idx] + parts[nominal_idx+1:])
+            remaining_words = remaining.split()
+
+            for cat in categories:
+                sub_lower = cat["sub"].lower()
+                # Per kata
+                for word in remaining_words:
+                    score = difflib.SequenceMatcher(None, word, sub_lower).ratio()
+                    if score > best_score and score > 0.68:
+                        best_score = score
                         best_cat = cat
-                        best_match_text = combined
-                        break
+                        best_match_text = word
+
+                # Gabung 2-3 kata
+                for n in range(2, 4):
+                    if len(remaining_words) >= n:
+                        combined = " ".join(remaining_words[-n:])
+                        score = difflib.SequenceMatcher(None, combined, sub_lower).ratio()
+                        if score > best_score and score > 0.75:
+                            best_score = score
+                            best_cat = cat
+                            best_match_text = combined
 
         if best_cat is None:
             await update.message.reply_text(
