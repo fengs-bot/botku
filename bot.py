@@ -827,16 +827,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf bro, kategori ga bisa di-load. Cek sheet Categories ya.")
         return
 
-    # Kategori: auto pintar dulu, baru fuzzy kalau ga match
-    best_cat = None
-    best_score = 0.0
-    best_match_text = ""
+    # Pastikan variabel ini selalu ada (untuk deskripsi aman)
+    parts = text_lower.split()
+    nominal = None
+    nominal_idx = -1
+    possible_accounts = []
+    account = None
 
-    # 1. Auto-kategori dari teks keseluruhan (tambah banyak keyword biar gampang match)
+    # 1. Auto-kategori dari teks keseluruhan (keyword lebih banyak & sensitif)
     desc_lower = text_lower
+    best_cat = None
+
     if any(kw in desc_lower for kw in ["grab", "gojek", "ojol", "maxim", "transport", "bensin", "ojek", "taksi", "motor", "mobil"]):
         best_cat = next((c for c in categories if "transport" in c["sub"].lower() or "transportasi" in c["sub"].lower()), None)
-    elif any(kw in desc_lower for kw in ["makan", "warteg", "warung", "resto", "food", "kuliner", "nasi", "kopi", "minum", "jajan", "gorengan"]):
+    elif any(kw in desc_lower for kw in ["makan", "warteg", "warung", "resto", "food", "kuliner", "nasi", "kopi", "minum", "jajan", "gorengan", "mie", "ayam"]):
         best_cat = next((c for c in categories if "makan" in c["sub"].lower() or "makanan" in c["sub"].lower() or "kuliner" in c["sub"].lower()), None)
     elif any(kw in desc_lower for kw in ["shopee", "tokopedia", "lazada", "belanja", "online", "shop", "e-commerce", "marketplace"]):
         best_cat = next((c for c in categories if "belanja" in c["sub"].lower() or "online" in c["sub"].lower()), None)
@@ -849,37 +853,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if best_cat:
         print(f"DEBUG: Auto-kategori match: {best_cat['sub']} dari teks '{text}'")
-    # Deskripsi: pakai full teks kalau ga ada remaining_words (safe default)
-    description = original_text
-
-    if best_cat and 'remaining_words' in locals():  # kalau fuzzy jalan
-        description = " ".join([w for w in remaining_words if w not in best_match_text.lower() and w not in account.lower()]).strip() or original_text
+        description = original_text
     else:
-        # 2. Fuzzy match (threshold diturunin biar gampang match "makan", "warteg", dll)
-        remaining = " ".join(parts[:nominal_idx] + parts[nominal_idx+1:])
+        # 2. Fuzzy match (threshold super longgar + print debug)
+        remaining = " ".join(parts)
         remaining_words = remaining.split()
 
         for cat in categories:
             sub_lower = cat["sub"].lower()
-            # Per kata (threshold lebih longgar)
+            # Per kata
             for word in remaining_words:
                 score = difflib.SequenceMatcher(None, word, sub_lower).ratio()
-                if score > best_score and score > 0.50:  # turunin dari 0.68 → 0.50 biar "warteg" match "Makanan"
+                if score > best_score and score > 0.45:  # super longgar 0.45
                     best_score = score
                     best_cat = cat
                     best_match_text = word
-                    print(f"DEBUG: Fuzzy single word match: '{word}' → '{sub_lower}' (score {score:.2f})")
+                    print(f"DEBUG: Fuzzy match: '{word}' → '{sub_lower}' (score {score:.2f})")
 
-            # Gabung 2 kata
-            for n in range(2, 3):
+            # Gabung 2-3 kata
+            for n in range(2, 4):
                 if len(remaining_words) >= n:
                     combined = " ".join(remaining_words[-n:])
                     score = difflib.SequenceMatcher(None, combined, sub_lower).ratio()
-                    if score > best_score and score > 0.60:  # turunin dari 0.75 → 0.60
+                    if score > best_score and score > 0.55:
                         best_score = score
                         best_cat = cat
                         best_match_text = combined
-                        print(f"DEBUG: Fuzzy combined match: '{combined}' → '{sub_lower}' (score {score:.2f})")
+                        print(f"DEBUG: Fuzzy combined: '{combined}' → '{sub_lower}' (score {score:.2f})")
 
     if best_cat is None:
         await update.message.reply_text(
@@ -889,10 +889,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Deskripsi: sisa kata selain akun & nominal
-    description = " ".join([w for w in remaining_words if w not in best_match_text.lower() and w not in account.lower()]).strip() or original_text
+    # Deskripsi: aman, pakai original kalau ga ada remaining
+    description = original_text
+    if 'remaining_words' in locals() and best_match_text:
+        description = " ".join([w for w in remaining_words if w not in best_match_text.lower() and w not in account.lower()]).strip() or original_text
 
-    # Lanjut deteksi income/pengeluaran + append sheet
+    # Cari akun (pindah ke sini biar selalu ada)
+    possible_accounts = [p.upper() for p in parts if account_exists(p.upper())]
+    if not possible_accounts:
+        await update.message.reply_text("Akun ga ketemu bro. Pastiin nama akun sama dengan di sheet Account.")
+        return
+    account = possible_accounts[0]
+
+    # Cari nominal (pindah ke sini biar selalu ada)
+    for i, p in enumerate(parts):
+        try:
+            nominal = parse_nominal(p)
+            nominal_idx = i
+            break
+        except:
+            continue
+    if nominal is None:
+        await update.message.reply_text("Nominalnya ga kebaca bro. Contoh: 500rb, 1jt, 75000")
+        return
+
+    # Lanjut income/pengeluaran + append
     if best_cat["type"] == "Income":
         tipe_display = "Pemasukan"
     else:
