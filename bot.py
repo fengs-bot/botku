@@ -490,6 +490,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/hapus terakhir → hapus transaksi terbaru"
         )
 
+    elif query.data.startswith('confirm_hapus_'):
+        row_str = query.data.split('_')[-1]
+        row = int(row_str)
+        try:
+            transaksi_sheet.delete_rows(row)
+            await query.edit_message_text(f"Transaksi baris {row} berhasil dihapus bro! 🔥")
+        except Exception as e:
+            await query.edit_message_text(f"Gagal hapus: {str(e)}")
+
     else:
         await query.edit_message_text(f"Tombol '{data}' ga dikenal bro, coba /help lagi ya.")
     
@@ -553,6 +562,71 @@ async def ringkasan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message)
     except Exception as e:
         await update.message.reply_text(f"Error ringkasan: {str(e)}")
+
+async def hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
+    
+    user_id = update.effective_user.id
+    if len(context.args) == 0:
+        await update.message.reply_text(
+            "Format: /hapus <nomor baris> atau /hapus terakhir\n"
+            "Contoh:\n"
+            "/hapus 5 → hapus transaksi baris ke-5\n"
+            "/hapus terakhir → hapus transaksi paling baru"
+        )
+        return
+
+    arg = context.args[0].lower()
+    
+    try:
+        all_data = transaksi_sheet.get_all_values()
+        if len(all_data) <= 1:  # hanya header
+            await update.message.reply_text("Belum ada transaksi yang bisa dihapus bro.")
+            return
+
+        if arg == "terakhir":
+            row_to_delete = len(all_data)  # baris terakhir
+        else:
+            try:
+                row_to_delete = int(arg)
+                if row_to_delete < 2:  # 1 = header
+                    await update.message.reply_text("Baris minimal 2 (abaikan header ya).")
+                    return
+                if row_to_delete > len(all_data):
+                    await update.message.reply_text(f"Baris {row_to_delete} ga ada, maksimal {len(all_data)}")
+                    return
+            except ValueError:
+                await update.message.reply_text("Masukin nomor baris yang bener dong (angka).")
+                return
+
+        # Konfirmasi dulu biar ga salah hapus
+        transaksi = all_data[row_to_delete-1]  # index mulai 0
+        tanggal = transaksi[0]
+        akun = transaksi[2]
+        tipe = transaksi[3]
+        nominal = transaksi[6]
+
+        keyboard = [
+            [
+                InlineKeyboardButton("Ya, Hapus!", callback_data=f"confirm_hapus_{row_to_delete}"),
+                InlineKeyboardButton("Batal", callback_data="batal_hapus")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            f"Yakin mau hapus transaksi ini?\n\n"
+            f"Baris: {row_to_delete}\n"
+            f"Tanggal: {tanggal}\n"
+            f"Akun: {akun}\n"
+            f"Tipe: {tipe}\n"
+            f"Nominal: Rp {nominal:,}\n",
+            reply_markup=reply_markup
+        )
+
+    except Exception as e:
+        await update.message.reply_text(f"Error hapus: {str(e)}\nCoba lagi atau lapor owner.")
 
 async def riwayat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
@@ -929,6 +1003,7 @@ app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("saldo", saldo))
 app.add_handler(CommandHandler("chart", chart))
+app.add_handler(CommandHandler("hapus", hapus))
 app.add_handler(CommandHandler("help", help_command))
 app.add_handler(CommandHandler("menu", help_command))
 app.add_handler(CommandHandler("laporan", laporan))
