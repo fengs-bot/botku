@@ -1087,34 +1087,36 @@ app.add_handler(CommandHandler("testombol", tes_tombol))
 # ================= MODE POLLING STABIL (REKOMENDASI FINAL) =================
 async def main():
     try:
-        # Load data
         load_allowed_users_sync()
-        print("Startup: Allowed users loaded. MODE: POLLING STABIL")
+        print("Startup: Allowed users loaded. MODE: POLLING")
 
-        # Inisialisasi app
         await app.initialize()
         await app.start()
 
-        print("=====================================")
-        print(" BOT JALAN DENGAN POLLING! ")
-        print(" Callback tombol SEHARUSNYA masuk sekarang ")
-        print(" Langsung test: /testombol → klik 'Klik Aku!' ")
-        print(" Lalu cek log Railway untuk DEBUG CALLBACK ")
-        print("=====================================")
+        print("Polling dimulai...")
 
-        # Polling dengan config optimal
-        await app.updater.start_polling(
-            drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES,
-            poll_interval=0.5,
-            timeout=15,
-            bootstrap_retries=-1  # retry selamanya
-        )
-        # Keep alive
+        while True:
+            try:
+                await app.updater.start_polling(
+                    drop_pending_updates=True,
+                    allowed_updates=Update.ALL_TYPES,
+                    poll_interval=0.5,
+                    timeout=15,
+                    bootstrap_retries=-1
+                )
+                break  # kalau sukses, keluar loop
+            except telegram.error.Conflict as e:
+                print(f"Conflict detected: {e}. Retry setelah 10 detik...")
+                await asyncio.sleep(10)
+            except Exception as e:
+                print(f"Polling error lain: {e}")
+                await asyncio.sleep(5)
+
+        print("Polling stabil! Test tombol sekarang.")
         await asyncio.Event().wait()
 
     except Exception as e:
-        print("ERROR POLLING:")
+        print("CRITICAL POLLING ERROR:")
         print(traceback.format_exc())
         raise
 
