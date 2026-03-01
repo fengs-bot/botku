@@ -432,16 +432,63 @@ async def laporan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Callback untuk inline keyboard
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    await query.answer()  # wajib, biar tombol ga stuck loading
 
-    if query.data == 'saldo':
+    data = query.data
+
+    if data == 'saldo':
         await saldo(update, context)
-    elif query.data == 'chart_month':
-        await chart(update, context)
-    elif query.data == 'transfer':
+    elif data == 'transfer':
         await query.edit_message_text("Kirim contoh transfer: transfer BCA 100rb ke GOPAY")
-    elif query.data == 'hapus_last':
-        await hapus(update, context)  # asumsikan ada fungsi hapus terakhir
+
+    elif data == 'ringkasan':
+        await ringkasan(update, context)
+
+    elif data == 'chart':
+        # Kasih instruksi singkat + contoh, karena chart butuh argumen
+        await query.edit_message_text(
+            "Kirim perintah chart dengan format:\n"
+            "/chart 2025-02 → grafik bulan Februari 2025\n"
+            "/chart 2025-02 pie → pie chart\n"
+            "/chart 2025 line → trend tahunan\n"
+            "/chart all expenses → semua pengeluaran"
+        )
+
+    elif data == 'riwayat':
+        await query.edit_message_text(
+            "Kirim perintah riwayat dengan nama akun:\n"
+            "Contoh:\n"
+            "/riwayat BCA → 10 transaksi terakhir BCA\n"
+            "/riwayat GOPAY → riwayat GOPAY"
+        )
+
+    elif data == 'export':
+        await export(update, context)
+
+    elif data == 'reloaduser':
+        await reloaduser(update, context)
+
+    elif data == 'laporan':
+        await laporan(update, context)
+
+    elif data == 'transaksi':
+        await query.edit_message_text(
+            "Catat transaksi langsung aja bro, contoh:\n"
+            "• BCA 50rb makan\n"
+            "• gopay grab 30rb\n"
+            "• transfer mandiri 200rb ke dana"
+        )
+
+    elif data == 'hapus':
+        await query.edit_message_text(
+            "Hapus transaksi:\n"
+            "/hapus 10 → hapus baris ke-10 di sheet\n"
+            "/hapus terakhir → hapus transaksi paling baru"
+        )
+
+    else:
+        await query.edit_message_text("Tombol ga dikenal bro, coba /help lagi ya.")
+    
 
 async def ringkasan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
