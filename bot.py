@@ -36,8 +36,8 @@ if not WEBHOOK_URL:
     raise ValueError("WEBHOOK_URL environment variable tidak ditemukan!")
 
 # ================= PRIVASI & USER MANAGEMENT =================
-OWNER_ID = 6901833402  # GANTI DENGAN ID TELEGRAM LU (dari @userinfobot)
-ALLOWED_USER_IDS = set()  # akan di-load dari sheet
+OWNER_ID = 6901833402  # ID lu
+ALLOWED_USER_IDS = set()
 
 async def load_allowed_users():
     global ALLOWED_USER_IDS
@@ -94,7 +94,6 @@ except Exception as e:
     print("ERROR saat koneksi Google Sheets:")
     print(traceback.format_exc())
     raise
-
 
 # ================= FUNCTIONS =================
 def parse_nominal(nominal_text):
@@ -209,7 +208,7 @@ async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
-    if len(context.args) < 1:
+if len(context.args) < 1:
         await update.message.reply_text(
             "Format pro chart:\n"
             "/chart [periode] [tipe] [filter]\n\n"
@@ -350,7 +349,6 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(traceback.format_exc())
         await update.message.reply_text(f"Error bikin chart: {str(e)}\nCoba periode lain atau cek data di sheet")
 
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
@@ -380,7 +378,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def laporan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
-    try:
+      try:
         data = transaksi_sheet.get_all_values()[1:]
         if not data:
             await update.message.reply_text("Belum ada transaksi bro")
@@ -446,7 +444,6 @@ async def reloaduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Gagal reload dari sheet USER. Cek logs atau sheetnya.")
 
-# Callback untuk inline keyboard
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -481,7 +478,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "• BCA 75rb makan warteg\n"
                 "• gopay 2jt gaji\n"
                 "• transfer mandiri 300rb ke dana bayar tagihan\n\n"
-                "Atau ketik /saldo /chart /hapus /help"
+                "Atau ketik /saldo /chart /hapus"
             )
             return
 
@@ -704,30 +701,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Kalau masih error, cek /start atau hubungi admin."
         )
 
-
-        # Contoh fallback akhir kalau ga match
-        await update.message.reply_text(
-            "Inputnya agak aneh bro 😅\n"
-            "Coba format seperti:\n"
-            "BCA 50rb makan\n"
-            "transfer BCA 100rb ke GOPAY\n\n"
-            "Atau ketik /help untuk daftar lengkap"
-        )
-
-    except Exception as e:
-        print(f"ERROR handle_message ({original_text}): {str(e)}")
-        print(traceback.format_exc())
-        await update.message.reply_text(
-            "Waduh ada error nih bro 😅\n"
-            f"{str(e)}\n\n"
-            "Coba ketik ulang atau kirim format sederhana dulu ya.\n"
-            "Kalau masih error, cek /start atau hubungi admin."
-        )
-
 # ================= APP =================
-async def startup():
-    await load_allowed_users()
-    print("Startup selesai, allowed users loaded.")
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
@@ -735,6 +709,7 @@ app.add_handler(CommandHandler("saldo", saldo))
 app.add_handler(CommandHandler("chart", chart))
 app.add_handler(CommandHandler("help", help_command))
 app.add_handler(CommandHandler("menu", help_command))
+app.add_handler(CommandHandler("laporan", laporan))
 app.add_handler(CommandHandler("reloaduser", reloaduser))
 app.add_handler(CallbackQueryHandler(button_callback))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -744,6 +719,7 @@ async def startup():
     print("Startup selesai, allowed users loaded.")
 
 try:
+    # Jalankan startup async dengan aman
     asyncio.run(startup())
     print(f"Starting webhook on port {PORT} with URL: {WEBHOOK_URL}/{TOKEN}")
     app.run_webhook(
