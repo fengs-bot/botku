@@ -827,132 +827,68 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf bro, kategori ga bisa di-load. Cek sheet Categories ya.")
         return
 
-    # 1. Deteksi transfer dulu (prioritas tinggi)
-    transfer_keywords = ["transfer", "kirim", "ke", "tujuan", "ke ", "kirim ke", "transfer ke"]
-    if any(kw in text_lower for kw in transfer_keywords):
-        # Parsing nominal
-        nominal = None
-        nominal_idx = -1
-        for i, p in enumerate(text_lower.split()):
-            try:
-                nominal = parse_nominal(p)
-                nominal_idx = i
-                break
-            except:
-                continue
-
-        if nominal is None:
-            await update.message.reply_text("Nominal transfernya mana bro? Contoh: transfer BCA 500rb ke GOPAY")
-            return
-
-        # Cari akun asal & tujuan
-        possible_accounts = [p.upper() for p in text_lower.split() if account_exists(p.upper())]
-
-        from_acc = None
-        to_acc = None
-
-        if nominal_idx > 0:
-            from_candidate = text_lower.split()[nominal_idx - 1].upper()
-            if account_exists(from_candidate):
-                from_acc = from_candidate
-
-        ke_pos = text_lower.find("ke")
-        if ke_pos != -1:
-            remaining = text_lower[ke_pos + 2:].strip().split()
-            if remaining:
-                to_candidate = remaining[0].upper()
-                if account_exists(to_candidate):
-                    to_acc = to_candidate
-
-        if not from_acc and not to_acc and len(possible_accounts) >= 2:
-            from_acc = possible_accounts[0]
-            to_acc = possible_accounts[1]
-        elif not to_acc and len(possible_accounts) >= 1:
-            to_acc = possible_accounts[-1]
-
-        if not from_acc or not to_acc:
-            await update.message.reply_text(
-                f"Akun asal/tujuan ga ketemu bro.\n"
-                f"Akun yang dikenal: {', '.join(possible_accounts) or 'belum ada'}\n"
-                "Contoh benar: transfer BCA 500rb ke GOPAY"
-            )
-            return
-
-        current_balance = get_current_balance(from_acc)
-        if current_balance < nominal:
-            await update.message.reply_text(
-                f"Saldo {from_acc} kurang bro 😔\n"
-                f"Sekarang: Rp {current_balance:,}\n"
-                f"Butuh: Rp {nominal:,}"
-            )
-            return
-
-        tanggal = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        nama = user_name
-
-        transaksi_sheet.append_row([
-            tanggal, nama, from_acc, "Expenses", "Financial", "Transfer", nominal, f"Transfer ke {to_acc} ({original_text})"
-        ])
-        transaksi_sheet.append_row([
-            tanggal, nama, to_acc, "Income", "Financial", "Transfer", nominal, f"Transfer dari {from_acc} ({original_text})"
-        ])
-
-        new_balance_from = get_current_balance(from_acc)
-        new_balance_to = get_current_balance(to_acc)
-
-        await update.message.reply_text(
-            f"Transfer berhasil bro! 🔥\n"
-            f"Rp {nominal:,} dari {from_acc} → {to_acc}\n"
-            f"Deskripsi: {original_text}\n\n"
-            f"Saldo sekarang:\n"
-            f"• {from_acc}: Rp {new_balance_from:,}\n"
-            f"• {to_acc}: Rp {new_balance_to:,}"
-        )
-        return
-
-    # 2. Transaksi biasa (pengeluaran/pemasukan)
-    parts = text_lower.split()
-    nominal = None
-    nominal_idx = -1
-    for i, p in enumerate(parts):
-        try:
-            nominal = parse_nominal(p)
-            nominal_idx = i
-            break
-        except:
-            continue
-
-    if nominal is None:
-        await update.message.reply_text("Nominalnya ga kebaca bro. Contoh: 500rb, 1jt, 75000")
-        return
-
-    possible_accounts = [p.upper() for p in parts if account_exists(p.upper())]
-
-    if not possible_accounts:
-        await update.message.reply_text("Akun ga ketemu bro. Pastiin nama akun sama dengan di sheet Account.")
-        return
-
-    account = possible_accounts[0]
-
-    # Kategori auto / fuzzy (kode lama kamu tetap)
+    # Kategori: auto pintar dulu, baru fuzzy kalau ga match
     best_cat = None
     best_score = 0.0
     best_match_text = ""
 
+    # 1. Auto-kategori dari teks keseluruhan (tambah banyak keyword biar gampang match)
     desc_lower = text_lower
-    # (paste semua blok auto-kategori dan fuzzy match dari script lama kamu di sini)
+    if any(kw in desc_lower for kw in ["grab", "gojek", "ojol", "maxim", "transport", "bensin", "ojek", "taksi", "motor", "mobil"]):
+        best_cat = next((c for c in categories if "transport" in c["sub"].lower() or "transportasi" in c["sub"].lower()), None)
+    elif any(kw in desc_lower for kw in ["makan", "warteg", "warung", "resto", "food", "kuliner", "nasi", "kopi", "minum", "jajan", "gorengan"]):
+        best_cat = next((c for c in categories if "makan" in c["sub"].lower() or "makanan" in c["sub"].lower() or "kuliner" in c["sub"].lower()), None)
+    elif any(kw in desc_lower for kw in ["shopee", "tokopedia", "lazada", "belanja", "online", "shop", "e-commerce", "marketplace"]):
+        best_cat = next((c for c in categories if "belanja" in c["sub"].lower() or "online" in c["sub"].lower()), None)
+    elif any(kw in desc_lower for kw in ["gaji", "bonus", "honor", "pendapatan", "salary", "upah", "uang masuk"]):
+        best_cat = next((c for c in categories if "gaji" in c["sub"].lower() or "pemasukan" in c["sub"].lower()), None)
+    elif any(kw in desc_lower for kw in ["pulsa", "kuota", "paket data", "internet", "telkomsel", "xl", "axis", "indosat"]):
+        best_cat = next((c for c in categories if "pulsa" in c["sub"].lower() or "kuota" in c["sub"].lower()), None)
+    elif any(kw in desc_lower for kw in ["tagihan", "listrik", "pln", "air", "pdam", "bpjs", "bayar"]):
+        best_cat = next((c for c in categories if "tagihan" in c["sub"].lower() or "utilitas" in c["sub"].lower()), None)
+
+    if best_cat:
+        print(f"DEBUG: Auto-kategori match: {best_cat['sub']} dari teks '{text}'")
+        description = original_text
+    else:
+        # 2. Fuzzy match (threshold diturunin biar gampang match "makan", "warteg", dll)
+        remaining = " ".join(parts[:nominal_idx] + parts[nominal_idx+1:])
+        remaining_words = remaining.split()
+
+        for cat in categories:
+            sub_lower = cat["sub"].lower()
+            # Per kata (threshold lebih longgar)
+            for word in remaining_words:
+                score = difflib.SequenceMatcher(None, word, sub_lower).ratio()
+                if score > best_score and score > 0.50:  # turunin dari 0.68 → 0.50 biar "warteg" match "Makanan"
+                    best_score = score
+                    best_cat = cat
+                    best_match_text = word
+                    print(f"DEBUG: Fuzzy single word match: '{word}' → '{sub_lower}' (score {score:.2f})")
+
+            # Gabung 2 kata
+            for n in range(2, 3):
+                if len(remaining_words) >= n:
+                    combined = " ".join(remaining_words[-n:])
+                    score = difflib.SequenceMatcher(None, combined, sub_lower).ratio()
+                    if score > best_score and score > 0.60:  # turunin dari 0.75 → 0.60
+                        best_score = score
+                        best_cat = cat
+                        best_match_text = combined
+                        print(f"DEBUG: Fuzzy combined match: '{combined}' → '{sub_lower}' (score {score:.2f})")
 
     if best_cat is None:
         await update.message.reply_text(
-            f"Kategori ga ketemu bro 😅\n"
-            f"Coba pakai kata seperti: makan, transport, gaji, belanja, pulsa, tagihan"
+            f"Kategori '{text}' ga ketemu bro 😅\n"
+            f"Coba pakai kata seperti: makan, warteg, transport, gaji, belanja, pulsa, tagihan\n"
+            "Atau cek sheet Categories untuk daftar lengkap."
         )
         return
 
-    # Deskripsi
-    remaining = " ".join(parts[:nominal_idx] + parts[nominal_idx+1:])
-    description = remaining.strip() or original_text
+    # Deskripsi: sisa kata selain akun & nominal
+    description = " ".join([w for w in remaining_words if w not in best_match_text.lower() and w not in account.lower()]).strip() or original_text
 
+    # Lanjut deteksi income/pengeluaran + append sheet
     if best_cat["type"] == "Income":
         tipe_display = "Pemasukan"
     else:
