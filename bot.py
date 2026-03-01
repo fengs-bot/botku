@@ -205,29 +205,33 @@ async def hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         all_data = transaksi_sheet.get_all_values()
-        if len(all_data) <= 1:
+        if len(all_data) <= 1:  # hanya header
             await update.message.reply_text("Belum ada transaksi yang bisa dihapus bro.")
             return
 
         if arg == "terakhir":
-            row_to_delete = len(all_data)
+            row_to_delete = len(all_data)  # baris terakhir
         else:
             try:
                 row_to_delete = int(arg)
-                if row_to_delete < 2 or row_to_delete > len(all_data):
-                    await update.message.reply_text(f"Baris {row_to_delete} ga valid.")
+                if row_to_delete < 2:  # 1 = header
+                    await update.message.reply_text("Baris minimal 2 (abaikan header ya).")
+                    return
+                if row_to_delete > len(all_data):
+                    await update.message.reply_text(f"Baris {row_to_delete} ga ada, maksimal {len(all_data)}")
                     return
             except ValueError:
                 await update.message.reply_text("Masukin nomor baris yang bener dong (angka).")
                 return
 
+        # Ambil detail transaksi
         transaksi = all_data[row_to_delete - 1]
         tanggal = transaksi[0]
         akun = transaksi[2]
         tipe = transaksi[3]
         nominal_formatted = format_rupiah(transaksi[6])
 
-        # Simpan state konfirmasi
+        # Simpan state konfirmasi (global dict yang sudah ada)
         hapus_pending[user_id] = {
             'row': row_to_delete,
             'timestamp': time.time(),
@@ -676,78 +680,6 @@ async def ringkasan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(message)
     except Exception as e:
         await update.message.reply_text(f"Error ringkasan: {str(e)}")
-
-async def hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_allowed_user(update, context):
-        return
-    
-    user_id = update.effective_user.id
-    if len(context.args) == 0:
-        await update.message.reply_text(
-            "Format: /hapus <nomor baris> atau /hapus terakhir\n"
-            "Contoh:\n"
-            "/hapus 5 → hapus transaksi baris ke-5\n"
-            "/hapus terakhir → hapus transaksi paling baru"
-        )
-        return
-
-    arg = context.args[0].lower()
-    
-    try:
-        all_data = transaksi_sheet.get_all_values()
-        if len(all_data) <= 1:  # hanya header
-            await update.message.reply_text("Belum ada transaksi yang bisa dihapus bro.")
-            return
-
-        if arg == "terakhir":
-            row_to_delete = len(all_data)  # baris terakhir
-        else:
-            try:
-                row_to_delete = int(arg)
-                if row_to_delete < 2:  # 1 = header
-                    await update.message.reply_text("Baris minimal 2 (abaikan header ya).")
-                    return
-                if row_to_delete > len(all_data):
-                    await update.message.reply_text(f"Baris {row_to_delete} ga ada, maksimal {len(all_data)}")
-                    return
-            except ValueError:
-                await update.message.reply_text("Masukin nomor baris yang bener dong (angka).")
-                return
-
-        # Konfirmasi dulu biar ga salah hapus
-        transaksi = all_data[row_to_delete-1]  # index mulai 0
-        tanggal = transaksi[0]
-        akun = transaksi[2]
-        tipe = transaksi[3]
-        nominal = transaksi[6]
-
-        keyboard = [
-            [
-                InlineKeyboardButton("Ya, Hapus!", callback_data=f"confirm_hapus_{row_to_delete}"),
-                InlineKeyboardButton("Batal", callback_data="batal_hapus")
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        # Ubah nominal jadi integer dulu, biar aman
-        try:
-            nominal_int = int(transaksi[6].replace(",", "").replace(".", ""))  # hapus koma & titik kalau ada
-            nominal_formatted = f"{nominal_int:,}"
-        except:
-            nominal_formatted = transaksi[6]  # kalau gagal, pakai aslinya aja (aman ga crash)
-
-        await update.message.reply_text(
-            f"Yakin mau hapus transaksi ini?\n\n"
-            f"Baris: {row_to_delete}\n"
-            f"Tanggal: {tanggal}\n"
-            f"Akun: {akun}\n"
-            f"Tipe: {tipe}\n"
-            f"Nominal: Rp {nominal_formatted}\n",
-            reply_markup=reply_markup
-        )
-
-    except Exception as e:
-        await update.message.reply_text(f"Error hapus: {str(e)}\nCoba lagi atau lapor owner.")
 
 async def riwayat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
