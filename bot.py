@@ -252,17 +252,17 @@ async def hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Error hapus: {str(e)}\nCoba lagi atau lapor owner.")
 
-async def konfirmasi_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def konfirmasi_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     state = hapus_pending.get(user_id)
     if not state:
-        return  # bukan konfirmasi hapus
+        return  # BUKAN konfirmasi hapus → lanjut ke handler berikutnya (handle_message)
 
-    # Cek timeout
+    # Ada state → ini konfirmasi hapus
     if time.time() - state['timestamp'] > 30:
         hapus_pending.pop(user_id, None)
         await update.message.reply_text("Konfirmasi hapus kadaluarsa. Ketik ulang /hapus kalau mau.")
-        return
+        return  # selesai, ga lanjut ke handler lain
 
     text = update.message.text.strip().upper()
     if text in ["YA", "Y", "YES"]:
@@ -274,8 +274,10 @@ async def konfirmasi_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Oke dibatalin, transaksi aman bro 😎")
 
-    # Hapus state setelah diproses
+    # Hapus state
     hapus_pending.pop(user_id, None)
+
+    # Jangan return kalau sudah diproses → biar ga lanjut ke handler lain
 
 async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
@@ -1066,10 +1068,10 @@ app.add_handler(CommandHandler("history", riwayat))
 app.add_handler(CommandHandler("export", export))
 app.add_handler(CommandHandler("reloaduser", reloaduser))
 
-# Handler konfirmasi hapus diprioritaskan (group=0)
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, konfirmasi_hapus), group=0)
+# Handler konfirmasi hapus DULUAN
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, konfirmasi_hapus))
 
-# Handler message biasa (transaksi, dll) di group default
+# Handler transaksi biasa (catat nominal, dll) SETELAHNYA
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 # ================= WEBHOOK =================
