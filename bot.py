@@ -3,7 +3,7 @@ import os
 import json
 import traceback
 import difflib
-from datetime import datetime
+from datetime import datetime, timedelta  # <-- INI YANG DITAMBAH
 import asyncio
 import csv
 
@@ -762,8 +762,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         best_score = 0.0
         best_match_text = ""
 
-        # 1. Auto-kategori dari deskripsi / teks keseluruhan (sebelum fuzzy)
-        desc_lower = text_lower  # pakai teks full dulu, karena description belum ada
+        # 1. Auto-kategori dari teks keseluruhan
+        desc_lower = text_lower
         if any(kw in desc_lower for kw in ["grab", "gojek", "ojol", "maxim", "transport", "bensin", "ojek", "taksi"]):
             best_cat = next((c for c in categories if "transport" in c["sub"].lower() or "transportasi" in c["sub"].lower()), None)
         elif any(kw in desc_lower for kw in ["shopee", "tokopedia", "lazada", "belanja", "online", "shop", "e-commerce"]):
@@ -779,10 +779,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if best_cat:
             print(f"DEBUG: Auto-kategori match: {best_cat['sub']} dari teks '{text}'")
+            # Kalau auto match, deskripsi pakai teks full (karena ga ada remaining)
+            description = original_text
         else:
-            # 2. Fuzzy match seperti biasa (kalau auto gagal)
+            # 2. Fuzzy match kalau auto gagal
             remaining = " ".join(parts[:nominal_idx] + parts[nominal_idx+1:])
-            remaining_words = remaining.split()
+            remaining_words = remaining.split()  # <-- define di sini, selalu ada
 
             for cat in categories:
                 sub_lower = cat["sub"].lower()
@@ -806,18 +808,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if best_cat is None:
             await update.message.reply_text(
-                f"Kategori '{remaining}' ga ketemu bro 😅\n"
+                f"Kategori '{remaining if 'remaining' in locals() else text}' ga ketemu bro 😅\n"
                 f"Coba pakai kata seperti: makan, transport, gaji, belanja, pulsa, tagihan\n"
                 "Atau cek sheet Categories untuk daftar lengkap."
             )
             return
 
         # Deskripsi: sisa kata selain akun, nominal, kategori
-        desc_parts = []
-        for w in remaining_words:
-            if w not in best_match_text.lower() and w not in account.lower():
-                desc_parts.append(w)
-        description = " ".join(desc_parts).strip() or original_text
+        if 'remaining_words' in locals():  # kalau fuzzy jalan
+            desc_parts = []
+            for w in remaining_words:
+                if w not in best_match_text.lower() and w not in account.lower():
+                    desc_parts.append(w)
+            description = " ".join(desc_parts).strip() or original_text
+        else:
+            description = original_text  # kalau auto match, pakai full text
 
         # Deteksi income kalau kategori Income
         if best_cat["type"] == "Income":
