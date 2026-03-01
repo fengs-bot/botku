@@ -1039,6 +1039,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ================= APP =================
+async def setup_webhook():
+    try:
+        webhook_url = f"{WEBHOOK_URL.rstrip('/')}/{TOKEN}"
+        print(f"DEBUG: Akan set webhook ke → {webhook_url}")
+        print(f"DEBUG: Listen port → {PORT}")
+        print(f"DEBUG: URL path → /{TOKEN}")
+
+        # Set webhook dulu
+        await app.bot.set_webhook(url=webhook_url)
+        print("Webhook berhasil diset!")
+
+        # Start aplikasi
+        await app.initialize()
+        await app.start()
+        await app.updater.start_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=TOKEN,
+            webhook_url=webhook_url
+        )
+        print("Webhook server berjalan! 🚀")
+
+    except Exception as e:
+        print("GAGAL SETUP WEBHOOK:")
+        print(traceback.format_exc())
+        raise
+
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
@@ -1056,52 +1083,60 @@ app.add_handler(CommandHandler("reloaduser", reloaduser))
 app.add_handler(CallbackQueryHandler(button_callback))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Load allowed users saat startup (sync, karena startup script)
-load_allowed_users_sync()  # fungsi sync yang gue tambah di bawah
-
-# Fungsi sync untuk load user (ga perlu await)
-def load_allowed_users_sync():
-    global ALLOWED_USER_IDS
+async def setup_and_run():
+    """
+    Fungsi utama async untuk:
+    - load data awal
+    - set webhook
+    - start bot
+    """
     try:
-        user_sheet = spreadsheet.worksheet("USER")
-        user_data = user_sheet.get_all_values()[1:]
-        allowed = set()
-        for row in user_data:
-            if len(row) >= 1 and row[0].strip().isdigit():
-                user_id = int(row[0].strip())
-                status = row[2].strip().lower() if len(row) > 2 else "active"
-                if status == "active":
-                    allowed.add(user_id)
-        ALLOWED_USER_IDS = allowed
-        print(f"DEBUG: Loaded {len(allowed)} user allowed dari sheet USER")
-    except gspread.exceptions.WorksheetNotFound:
-        print("WARNING: Sheet 'USER' tidak ditemukan. Bot jadi public sementara.")
-        ALLOWED_USER_IDS = set()
+        # 1. Load allowed users dulu (sync, aman)
+        load_allowed_users_sync()
+        print("Startup selesai, allowed users loaded.")
+
+        # 2. Siapkan webhook URL (tanpa trailing slash di akhir base URL)
+        webhook_url = f"{WEBHOOK_URL.rstrip('/')}/{TOKEN}"
+        print(f"DEBUG: Webhook URL yang akan digunakan → {webhook_url}")
+        print(f"DEBUG: Listen di port → {PORT}")
+        print(f"DEBUG: URL path → /{TOKEN}")
+
+        # 3. Set webhook secara eksplisit (penting di Railway)
+        print("Sedang set webhook ke Telegram...")
+        await app.bot.set_webhook(url=webhook_url)
+        print("Webhook berhasil diset ke Telegram!")
+
+        # 4. Initialize & start aplikasi
+        await app.initialize()
+        await app.start()
+
+        # 5. Jalankan webhook server
+        await app.updater.start_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=TOKEN,
+            webhook_url=webhook_url
+        )
+        
+        print("=======================================")
+        print(" BOT BERHASIL JALAN DENGAN WEBHOOK! 🚀 ")
+        print("=======================================")
+        
+        # Biar tetap jalan selamanya (penting di Railway)
+        await asyncio.Event().wait()  # tunggu selamanya
+
     except Exception as e:
-        print(f"ERROR load allowed users: {e}")
-        ALLOWED_USER_IDS = set()
+        print("=======================================")
+        print(" GAGAL START BOT / WEBHOOK ")
+        print("=======================================")
+        print(traceback.format_exc())
+        raise
 
-try:
-    load_allowed_users_sync()
-    print("Startup selesai, allowed users loaded.")
 
-    webhook_url = f"{WEBHOOK_URL.rstrip('/')}/{TOKEN}"
-    print(f"AKAN SET WEBHOOK KE: {webhook_url}")
-    print(f"Listen di port: {PORT}")
-    print(f"URL path: /{TOKEN}")
+# ────────────────────────────────────────────────
+#   JALANKAN SEMUA (INI YANG DIPANGGIL SAAT SCRIPT DI-RUN)
+# ────────────────────────────────────────────────
 
-    # Set webhook dulu secara eksplisit (lebih aman di Railway)
-    await app.bot.set_webhook(url=webhook_url)
-
-    await app.start()
-    await app.updater.start_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TOKEN,
-        webhook_url=webhook_url
-    )
-    print("Webhook berhasil dijalankan!")
-except Exception as e:
-    print("GAGAL START WEBHOOK:")
-    print(traceback.format_exc())
-    raise
+if __name__ == "__main__":
+    # Pastikan app sudah dibuat dan handler sudah ditambahkan
+    asyncio.run(setup_and_run())
