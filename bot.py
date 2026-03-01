@@ -498,16 +498,33 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data.startswith('confirm_hapus_'):
-        row_str = query.data.split('_')[-1]
-        row = int(row_str)
+        # Ambil nomor baris dari callback_data, contoh: confirm_hapus_9 → 9
         try:
-            transaksi_sheet.delete_rows(row)
-            await query.edit_message_text(f"Transaksi baris {row} berhasil dihapus bro! 🔥")
+            row_str = query.data.split('_')[-1]   # ambil bagian terakhir setelah underscore
+            row_to_delete = int(row_str)
+            
+            # Hapus baris di Google Sheet (baris 1 = header, jadi baris data mulai 2)
+            transaksi_sheet.delete_rows(row_to_delete)
+            
+            # Edit pesan konfirmasi jadi sudah dihapus
+            await query.edit_message_text(
+                f"✅ Transaksi baris {row_to_delete} berhasil dihapus bro!\n"
+                "Saldo & data sudah update otomatis."
+            )
+            
+            # Optional: kirim notif ringkas atau refresh saldo kalau mau
+            # await query.message.reply_text("Cek /saldo lagi ya biar yakin!")
+            
+        except ValueError:
+            await query.edit_message_text("Error: Nomor baris ga valid bro 😅")
         except Exception as e:
-            await query.edit_message_text(f"Gagal hapus: {str(e)}")
+            await query.edit_message_text(f"Gagal hapus: {str(e)}\nCoba lagi atau lapor owner.")
+
+    elif query.data == 'batal_hapus':
+        await query.edit_message_text("Oke dibatalin, transaksi aman bro 😎")
 
     else:
-        await query.edit_message_text(f"Tombol '{data}' ga dikenal bro, coba /help lagi ya.")
+        await query.edit_message_text(f"Tombol '{query.data}' ga dikenal. Coba /help lagi ya.")
     
 
 async def ringkasan(update: Update, context: ContextTypes.DEFAULT_TYPE):
