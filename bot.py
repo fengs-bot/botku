@@ -4,7 +4,6 @@ import json
 import traceback
 import difflib
 from datetime import datetime
-import asyncio
 
 print("=== BOT MULAI JALAN DI RAILWAY ===")
 print("Python version:", sys.version)
@@ -35,6 +34,41 @@ if not TOKEN:
 if not WEBHOOK_URL:
     raise ValueError("WEBHOOK_URL environment variable tidak ditemukan!")
 
+# ================= PRIVASI & USER MANAGEMENT =================
+OWNER_ID = 6901833402  # GANTI DENGAN ID TELEGRAM LU (dari @userinfobot)
+ALLOWED_USER_IDS = set()  # akan di-load dari sheet
+
+async def load_allowed_users():
+    global ALLOWED_USER_IDS
+    try:
+        user_sheet = spreadsheet.worksheet("USER")
+        user_data = user_sheet.get_all_values()[1:]  # skip header
+        allowed = set()
+        for row in user_data:
+            if len(row) >= 1 and row[0].strip().isdigit():
+                user_id = int(row[0].strip())
+                status = row[2].strip().lower() if len(row) > 2 else "active"
+                if status == "active":
+                    allowed.add(user_id)
+        ALLOWED_USER_IDS = allowed
+        print(f"DEBUG: Loaded {len(allowed)} user allowed dari sheet USER")
+        return True
+    except gspread.exceptions.WorksheetNotFound:
+        print("WARNING: Sheet 'USER' tidak ditemukan. Bot jadi public sementara.")
+        ALLOWED_USER_IDS = set()
+        return False
+    except Exception as e:
+        print(f"ERROR load allowed users: {e}")
+        return False
+
+async def is_allowed_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user_id = update.effective_user.id
+    if user_id not in ALLOWED_USER_IDS:
+        await update.message.reply_text("Maaf bro, bot ini privat. Hanya user terdaftar yang bisa pakai.")
+        print(f"DEBUG: User ditolak: ID {user_id} ({update.effective_user.username or 'no username'})")
+        return False
+    return True
+
 # ================= GOOGLE SHEETS =================
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -59,6 +93,9 @@ except Exception as e:
     print("ERROR saat koneksi Google Sheets:")
     print(traceback.format_exc())
     raise
+
+# Load allowed users saat startup
+asyncio.run(load_allowed_users())
 
 # ================= FUNCTIONS =================
 def parse_nominal(nominal_text):
@@ -125,9 +162,13 @@ def find_category(input_category, categories):
 
 # ================= COMMANDS =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
     await update.message.reply_text("Bot aktif 24 jam 🚀 Selamat datang bro!")
 
 async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
     try:
         transaksi = transaksi_sheet.get_all_values()[1:]
         account_data = account_sheet.get_all_values()[1:]
@@ -167,16 +208,158 @@ async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error saat ambil saldo: {str(e)}")
 
 async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # (kode chart pro lu yang sudah lengkap dari sebelumnya – copy dari pesan sebelumnya kalau hilang)
-    # Biar ga panjang, asumsikan kode chart pro sudah ada
-    # Kalau hilang, bilang "chart hilang" gue kasih lagi
+    if not await is_allowed_user(update, context):
+        return
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "Format pro chart:\n"
+            "/chart [periode] [tipe] [filter]\n\n"
+            "Contoh:\n"
+            "• /chart 2025-02 → bar pengeluaran Feb 2025\n"
+            "• /chart 2025-02 pie → pie chart Feb\n"
+            "• /chart 2025 line → trend bulanan 2025\n"
+            "• /chart all expenses → semua pengeluaran\n"
+            "• /chart income 2025 → pemasukan 2025"
+        )
+        return
+
+    args = context.args
+    period = args[0].lower()
+    chart_type = 'bar'  # default
+    data_filter = 'expenses'  # default
+
+    if len(args) > 1:
+        if args[1] in ['bar', 'pie', 'line']:
+            chart_type = args[1]
+        elif args[1] in ['expenses', 'income', 'all']:
+            data_filter = args[1]
+
+    if len(args) > 2:
+        if args[2] in ['expenses', 'income', 'all']:
+            data_filter = args[2]
+
+    try:
+        data = transaksi_sheet.get_all_values()[1:]  # skip header
+        if not data:
+            await update.message.reply_text("Belum ada data transaksi bro")
+            return
+
+        category_totals = {}
+        monthly_trend = {}  # untuk line chart
+
+        for row in data:
+            if len(row) < 7:
+                continue
+            date_str = row[0]
+            tipe = row[3]
+            category = row[5]
+            try:
+                amount = int(row[6])
+            except:
+                continue
+
+            # Filter data sesuai request
+            if data_filter == 'expenses' and tipe != "Expenses":
+                continue
+            if data_filter == 'income' and tipe != "Income":
+                continue
+
+            # Proses periode
+            if period == 'all':
+                pass
+            elif '-' in period:  # YYYY-MM
+                if not date_str.startswith(period):
+                    continue
+            elif len(period) == 4 and period.isdigit():  # YYYY
+                if not date_str.startswith(period):
+                    continue
+            else:
+                await update.message.reply_text("Format periode salah. Gunakan YYYY-MM atau YYYY atau 'all'")
+                return
+
+            # Hitung total per kategori
+            category_totals[category] = category_totals.get(category, 0) + amount
+
+            # Trend bulanan untuk line chart
+            if chart_type == 'line':
+                month_key = date_str[:7]  # YYYY-MM
+                monthly_trend[month_key] = monthly_trend.get(month_key, 0) + amount
+
+        if not category_totals and chart_type != 'line':
+            await update.message.reply_text(f"Tidak ada data {data_filter} untuk periode '{period}'")
+            return
+
+        if chart_type == 'line' and not monthly_trend:
+            await update.message.reply_text(f"Tidak ada data trend untuk periode '{period}'")
+            return
+
+        # Warna custom per kategori (bisa ditambah sesuai sheet Categories)
+        colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEEAD', '#D4A5A5', '#9B59B6', '#3498DB']
+
+        plt.figure(figsize=(12, 7))
+
+        if chart_type == 'pie':
+            plt.pie(
+                category_totals.values(),
+                labels=category_totals.keys(),
+                autopct='%1.1f%%',
+                colors=colors[:len(category_totals)],
+                startangle=90,
+                shadow=True
+            )
+            plt.title(f"Distribusi {data_filter.capitalize()} - {period.upper()}")
+            plt.axis('equal')
+
+        elif chart_type == 'line':
+            sorted_months = sorted(monthly_trend.keys())
+            values = [monthly_trend[m] for m in sorted_months]
+            plt.plot(sorted_months, values, marker='o', linewidth=2, color='#1abc9c')
+            plt.fill_between(sorted_months, values, alpha=0.2, color='#1abc9c')
+            plt.title(f"Trend {data_filter.capitalize()} - {period.upper()}")
+            plt.xlabel("Bulan")
+            plt.ylabel("Nominal (Rp)")
+            plt.xticks(rotation=45)
+            plt.grid(True, linestyle='--', alpha=0.7)
+
+        else:  # bar default
+            sorted_items = sorted(category_totals.items(), key=lambda x: x[1], reverse=True)
+            cats, vals = zip(*sorted_items)
+            bars = plt.bar(cats, vals, color=colors[:len(cats)])
+            plt.bar_label(bars, fmt='{:,.0f}', padding=3)
+            plt.title(f"Pengeluaran per Kategori - {period.upper()}")
+            plt.xlabel("Kategori")
+            plt.ylabel("Nominal (Rp)")
+            plt.xticks(rotation=45, ha='right')
+            plt.grid(axis='y', linestyle='--', alpha=0.7)
+
+        plt.tight_layout()
+        filename = f"chart_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        plt.close()
+
+        await update.message.reply_photo(
+            photo=open(filename, "rb"),
+            caption=f"Grafik {chart_type.upper()} {data_filter.capitalize()} periode {period}\n"
+                    f"Total: Rp {sum(category_totals.values() if chart_type != 'line' else monthly_trend.values()):,}"
+        )
+
+        # Bersihkan file setelah kirim
+        os.remove(filename)
+
+    except Exception as e:
+        print(f"ERROR chart: {str(e)}")
+        print(traceback.format_exc())
+        await update.message.reply_text(f"Error bikin chart: {str(e)}\nCoba periode lain atau cek data di sheet")
+
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
     keyboard = [
-        [InlineKeyboardButton("Saldo", callback_data='saldo')],
-        [InlineKeyboardButton("Chart Bulanan", callback_data='chart_month')],
-        [InlineKeyboardButton("Transfer", callback_data='transfer')],
-        [InlineKeyboardButton("Hapus Terakhir", callback_data='hapus_last')]
+        [InlineKeyboardButton("Cek Saldo", callback_data='saldo')],
+        [InlineKeyboardButton("Lihat Chart", callback_data='chart')],
+        [InlineKeyboardButton("Catat Transaksi", callback_data='transaksi')],
+        [InlineKeyboardButton("Hapus Transaksi", callback_data='hapus')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -190,11 +373,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Chart: /chart 2025-02\n"
         "• Hapus: /hapus 10 atau /hapus terakhir\n"
         "• Laporan: /laporan\n"
+        "• Reload User: /reloaduser (khusus owner)\n"
         "• Help: /help atau /menu",
         reply_markup=reply_markup
     )
 
 async def laporan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
     try:
         data = transaksi_sheet.get_all_values()[1:]
         if not data:
@@ -246,9 +432,39 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'hapus_last':
         await hapus(update, context)  # asumsikan ada fungsi hapus terakhir
 
-# ================= MESSAGE HANDLER =================
+async def reloaduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != OWNER_ID:
+        await update.message.reply_text("Maaf, command ini hanya untuk owner bot.")
+        return
+
+    success = await load_allowed_users()
+    if success:
+        await update.message.reply_text(
+            f"Reload user berhasil! Sekarang ada {len(ALLOWED_USER_IDS)} user aktif diizinkan.\n"
+            f"User ID yang diizinkan: {', '.join(map(str, sorted(ALLOWED_USER_IDS)))}"
+        )
+    else:
+        await update.message.reply_text("Gagal reload dari sheet USER. Cek logs atau sheetnya.")
+
+# Callback untuk inline keyboard
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == 'saldo':
+        await saldo(update, context)
+    elif query.data == 'chart':
+        await query.edit_message_text("Kirim perintah: /chart 2025-02")
+    elif query.data == 'transaksi':
+        await query.edit_message_text("Kirim contoh: BCA 50rb makan")
+    elif query.data == 'hapus':
+        await query.edit_message_text("Kirim: /hapus 10 atau /hapus terakhir")
+
 # ================= MESSAGE HANDLER =================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
     try:
         text = update.message.text.strip()
         original_text = text
@@ -266,7 +482,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "• BCA 75rb makan warteg\n"
                 "• gopay 2jt gaji\n"
                 "• transfer mandiri 300rb ke dana bayar tagihan\n\n"
-                "Atau ketik /saldo /chart /hapus"
+                "Atau ketik /saldo /chart /hapus /help"
             )
             return
 
@@ -489,6 +705,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Kalau masih error, cek /start atau hubungi admin."
         )
 
+
+        # Contoh fallback akhir kalau ga match
+        await update.message.reply_text(
+            "Inputnya agak aneh bro 😅\n"
+            "Coba format seperti:\n"
+            "BCA 50rb makan\n"
+            "transfer BCA 100rb ke GOPAY\n\n"
+            "Atau ketik /help untuk daftar lengkap"
+        )
+
+    except Exception as e:
+        print(f"ERROR handle_message ({original_text}): {str(e)}")
+        print(traceback.format_exc())
+        await update.message.reply_text(
+            "Waduh ada error nih bro 😅\n"
+            f"{str(e)}\n\n"
+            "Coba ketik ulang atau kirim format sederhana dulu ya.\n"
+            "Kalau masih error, cek /start atau hubungi admin."
+        )
+
 # ================= APP =================
 app = ApplicationBuilder().token(TOKEN).build()
 
@@ -497,7 +733,7 @@ app.add_handler(CommandHandler("saldo", saldo))
 app.add_handler(CommandHandler("chart", chart))
 app.add_handler(CommandHandler("help", help_command))
 app.add_handler(CommandHandler("menu", help_command))
-app.add_handler(CommandHandler("laporan", laporan))
+app.add_handler(CommandHandler("reloaduser", reloaduser))
 app.add_handler(CallbackQueryHandler(button_callback))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
