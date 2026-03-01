@@ -36,10 +36,10 @@ if not WEBHOOK_URL:
     raise ValueError("WEBHOOK_URL environment variable tidak ditemukan!")
 
 # ================= PRIVASI & USER MANAGEMENT =================
-OWNER_ID = 6901833402  # ID lu
+OWNER_ID = 6901833402  # ID lu dari @userinfobot
 ALLOWED_USER_IDS = set()
 
-async def load_allowed_users():
+def load_allowed_users_sync():
     global ALLOWED_USER_IDS
     try:
         user_sheet = spreadsheet.worksheet("USER")
@@ -53,14 +53,12 @@ async def load_allowed_users():
                     allowed.add(user_id)
         ALLOWED_USER_IDS = allowed
         print(f"DEBUG: Loaded {len(allowed)} user allowed dari sheet USER")
-        return True
     except gspread.exceptions.WorksheetNotFound:
         print("WARNING: Sheet 'USER' tidak ditemukan. Bot jadi public sementara.")
         ALLOWED_USER_IDS = set()
-        return False
     except Exception as e:
         print(f"ERROR load allowed users: {e}")
-        return False
+        ALLOWED_USER_IDS = set()
 
 async def is_allowed_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.effective_user.id
@@ -69,6 +67,18 @@ async def is_allowed_user(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         print(f"DEBUG: User ditolak: ID {user_id} ({update.effective_user.username or 'no username'})")
         return False
     return True
+
+async def reloaduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != OWNER_ID:
+        await update.message.reply_text("Maaf, command ini hanya untuk owner bot.")
+        return
+
+    load_allowed_users_sync()  # panggil sync langsung
+    await update.message.reply_text(
+        f"Reload user berhasil! Sekarang ada {len(ALLOWED_USER_IDS)} user aktif diizinkan.\n"
+        f"User ID yang diizinkan: {', '.join(map(str, sorted(ALLOWED_USER_IDS)))}"
+    )
 
 # ================= GOOGLE SHEETS =================
 scope = [
@@ -740,6 +750,10 @@ def load_allowed_users_sync():
         ALLOWED_USER_IDS = set()
 
 try:
+    # Load allowed users saat startup (sync, aman tanpa loop)
+    load_allowed_users_sync()
+    print("Startup selesai, allowed users loaded.")
+
     print(f"Starting webhook on port {PORT} with URL: {WEBHOOK_URL}/{TOKEN}")
     app.run_webhook(
         listen="0.0.0.0",
