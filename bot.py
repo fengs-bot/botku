@@ -441,14 +441,6 @@ async def laporan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Error laporan: {str(e)}")
 
-async def tes_tombol(update: Update, context):
-    keyboard = [
-        [InlineKeyboardButton("Klik Aku!", callback_data="tes_klik")]
-    ]
-    await update.message.reply_text("Tes tombol:", reply_markup=InlineKeyboardMarkup(keyboard))
-
-app.add_handler(CommandHandler("testombol", tes_tombol))
-
 # Callback untuk inline keyboard
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1080,9 +1072,17 @@ app.add_handler(CommandHandler("riwayat", riwayat))
 app.add_handler(CommandHandler("history", riwayat))  # alias
 app.add_handler(CommandHandler("export", export))
 app.add_handler(CommandHandler("reloaduser", reloaduser))
-app.add_handler(CommandHandler("testombol", tes_tombol))
 app.add_handler(CallbackQueryHandler(button_callback))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+async def tes_tombol(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("Klik Aku!", callback_data="tes_klik")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Tes tombol bro:", reply_markup=reply_markup)
+
+app.add_handler(CommandHandler("testombol", tes_tombol))
 
 async def setup_and_run():
     """
