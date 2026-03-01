@@ -366,26 +366,31 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
+
     keyboard = [
-        [InlineKeyboardButton("Cek Saldo", callback_data='saldo')],
-        [InlineKeyboardButton("Lihat Chart", callback_data='chart')],
-        [InlineKeyboardButton("Catat Transaksi", callback_data='transaksi')],
-        [InlineKeyboardButton("Hapus Transaksi", callback_data='hapus')]
+        [InlineKeyboardButton("💰 Cek Saldo", callback_data='saldo'),
+         InlineKeyboardButton("📊 Ringkasan", callback_data='ringkasan')],
+        [InlineKeyboardButton("📈 Chart", callback_data='chart'),
+         InlineKeyboardButton("📜 Riwayat", callback_data='riwayat')],
+        [InlineKeyboardButton("📤 Export CSV", callback_data='export'),
+         InlineKeyboardButton("🔄 Reload User", callback_data='reloaduser')],
+        [InlineKeyboardButton("📋 Laporan", callback_data='laporan')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
         "Menu Cepat Bot Keuangan Pro:\n"
-        "Pilih salah satu tombol di bawah atau ketik perintah langsung\n\n"
-        "Fitur lengkap:\n"
+        "Klik tombol di bawah atau ketik perintah langsung\n\n"
         "• Catat transaksi: BCA 50rb makan\n"
         "• Transfer: transfer BCA 100rb ke GOPAY\n"
-        "• Cek saldo: /saldo\n"
-        "• Chart: /chart 2025-02\n"
-        "• Hapus: /hapus 10 atau /hapus terakhir\n"
-        "• Laporan: /laporan\n"
-        "• Reload User: /reloaduser (khusus owner)\n"
-        "• Help: /help atau /menu",
+        "• /saldo → Cek semua saldo\n"
+        "• /ringkasan → Ringkasan harian/mingguan/bulanan\n"
+        "• /riwayat BCA → 10 transaksi terakhir\n"
+        "• /export → Download semua data CSV\n"
+        "• /chart 2025-02 → Grafik pengeluaran\n"
+        "• /laporan → Total income & expense\n"
+        "• /reloaduser → Update daftar user (owner only)\n"
+        "• /help atau /menu → Tampilkan menu ini lagi",
         reply_markup=reply_markup
     )
 
@@ -432,23 +437,22 @@ async def laporan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Callback untuk inline keyboard
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()  # wajib, biar tombol ga stuck loading
+    await query.answer()  # biar tombol ga stuck loading
 
     data = query.data
+    print(f"DEBUG: Tombol diklik: {data} oleh user {update.effective_user.id}")
 
     if data == 'saldo':
         await saldo(update, context)
-    elif data == 'transfer':
-        await query.edit_message_text("Kirim contoh transfer: transfer BCA 100rb ke GOPAY")
+        await query.edit_message_text("Saldo sedang diambil...")  # optional: update pesan menu
 
     elif data == 'ringkasan':
         await ringkasan(update, context)
 
     elif data == 'chart':
-        # Kasih instruksi singkat + contoh, karena chart butuh argumen
         await query.edit_message_text(
-            "Kirim perintah chart dengan format:\n"
-            "/chart 2025-02 → grafik bulan Februari 2025\n"
+            "Kirim perintah chart:\n"
+            "/chart 2025-02 → grafik bulan\n"
             "/chart 2025-02 pie → pie chart\n"
             "/chart 2025 line → trend tahunan\n"
             "/chart all expenses → semua pengeluaran"
@@ -456,8 +460,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == 'riwayat':
         await query.edit_message_text(
-            "Kirim perintah riwayat dengan nama akun:\n"
-            "Contoh:\n"
+            "Kirim perintah riwayat:\n"
             "/riwayat BCA → 10 transaksi terakhir BCA\n"
             "/riwayat GOPAY → riwayat GOPAY"
         )
@@ -473,21 +476,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == 'transaksi':
         await query.edit_message_text(
-            "Catat transaksi langsung aja bro, contoh:\n"
+            "Catat transaksi langsung:\n"
+            "Contoh:\n"
             "• BCA 50rb makan\n"
             "• gopay grab 30rb\n"
-            "• transfer mandiri 200rb ke dana"
+            "• transfer BCA 200rb ke dana"
         )
 
     elif data == 'hapus':
         await query.edit_message_text(
             "Hapus transaksi:\n"
-            "/hapus 10 → hapus baris ke-10 di sheet\n"
-            "/hapus terakhir → hapus transaksi paling baru"
+            "/hapus 10 → hapus baris ke-10\n"
+            "/hapus terakhir → hapus transaksi terbaru"
         )
 
     else:
-        await query.edit_message_text("Tombol ga dikenal bro, coba /help lagi ya.")
+        await query.edit_message_text(f"Tombol '{data}' ga dikenal bro, coba /help lagi ya.")
     
 
 async def ringkasan(update: Update, context: ContextTypes.DEFAULT_TYPE):
