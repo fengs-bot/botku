@@ -3,9 +3,11 @@ import os
 import json
 import traceback
 import difflib
-from datetime import datetime, timedelta  # <-- INI YANG DITAMBAH
+from datetime import datetime, timedelta
 import asyncio
 import csv
+from collections import defaultdict
+import time  # untuk timeout konfirmasi
 
 print("=== BOT MULAI JALAN DI RAILWAY ===")
 print("Python version:", sys.version)
@@ -18,9 +20,9 @@ print("PORT from env:", os.environ.get("PORT", "tidak ada"))
 
 import matplotlib
 matplotlib.use('Agg')
-
 import matplotlib.pyplot as plt
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+
+from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
 import gspread
@@ -44,14 +46,14 @@ if not WEBHOOK_URL:
     raise ValueError("WEBHOOK_URL environment variable tidak ditemukan!")
 
 # ================= PRIVASI & USER MANAGEMENT =================
-OWNER_ID = 6901833402  # ID lu dari @userinfobot
+OWNER_ID = 6901833402
 ALLOWED_USER_IDS = set()
 
 def load_allowed_users_sync():
     global ALLOWED_USER_IDS
     try:
         user_sheet = spreadsheet.worksheet("USER")
-        user_data = user_sheet.get_all_values()[1:]  # skip header
+        user_data = user_sheet.get_all_values()[1:]
         allowed = set()
         for row in user_data:
             if len(row) >= 1 and row[0].strip().isdigit():
@@ -72,7 +74,7 @@ async def is_allowed_user(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = update.effective_user.id
     if user_id not in ALLOWED_USER_IDS:
         await update.message.reply_text("Maaf bro, bot ini privat. Hanya user terdaftar yang bisa pakai.")
-        print(f"DEBUG: User ditolak: ID {user_id} ({update.effective_user.username or 'no username'})")
+        print(f"DEBUG: User ditolak: ID {user_id}")
         return False
     return True
 
@@ -82,14 +84,11 @@ async def reloaduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf, command ini hanya untuk owner bot.")
         return
 
-    success = load_allowed_users_sync()  # <-- FIX: panggil sync tanpa await
-    if success:
-        await update.message.reply_text(
-            f"Reload user berhasil! Sekarang ada {len(ALLOWED_USER_IDS)} user aktif diizinkan.\n"
-            f"User ID yang diizinkan: {', '.join(map(str, sorted(ALLOWED_USER_IDS)))}"
-        )
-    else:
-        await update.message.reply_text("Gagal reload dari sheet USER. Cek logs atau sheetnya.")
+    load_allowed_users_sync()
+    await update.message.reply_text(
+        f"Reload user berhasil! Sekarang ada {len(ALLOWED_USER_IDS)} user aktif diizinkan.\n"
+        f"User ID yang terdaftar: {', '.join(map(str, sorted(ALLOWED_USER_IDS)))}"
+    )
 
 # ================= GOOGLE SHEETS =================
 scope = [
@@ -115,6 +114,9 @@ except Exception as e:
     print("ERROR saat koneksi Google Sheets:")
     print(traceback.format_exc())
     raise
+
+# ================= STATE UNTUK KONFIRMASI HAPUS =================
+hapus_pending = defaultdict(dict)  # user_id → {'row': int, 'timestamp': float, 'chat_id': int}
 
 # ================= FUNCTIONS =================
 def parse_nominal(nominal_text):
@@ -184,6 +186,92 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
     await update.message.reply_text("Bot aktif 24 jam 🚀 Selamat datang bro!")
+
+async def hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
+    
+    user_id = update.effective_user.id
+    if len(context.args) == 0:
+        await update.message.reply_text(
+            "Format: /hapus <nomor baris> atau /hapus terakhir\n"
+            "Contoh:\n"
+            "/hapus 5 → hapus transaksi baris ke-5\n"
+            "/hapus terakhir → hapus transaksi paling baru"
+        )
+        return
+
+    arg = context.args[0].lower()
+    
+    try:
+        all_data = transaksi_sheet.get_all_values()
+        if len(all_data) <= 1:
+            await update.message.reply_text("Belum ada transaksi yang bisa dihapus bro.")
+            return
+
+        if arg == "terakhir":
+            row_to_delete = len(all_data)
+        else:
+            try:
+                row_to_delete = int(arg)
+                if row_to_delete < 2 or row_to_delete > len(all_data):
+                    await update.message.reply_text(f"Baris {row_to_delete} ga valid.")
+                    return
+            except ValueError:
+                await update.message.reply_text("Masukin nomor baris yang bener dong (angka).")
+                return
+
+        transaksi = all_data[row_to_delete - 1]
+        tanggal = transaksi[0]
+        akun = transaksi[2]
+        tipe = transaksi[3]
+        nominal_formatted = format_rupiah(transaksi[6])
+
+        # Simpan state konfirmasi
+        hapus_pending[user_id] = {
+            'row': row_to_delete,
+            'timestamp': time.time(),
+            'chat_id': update.effective_chat.id
+        }
+
+        await update.message.reply_text(
+            f"Yakin mau hapus transaksi ini?\n\n"
+            f"Baris: {row_to_delete}\n"
+            f"Tanggal: {tanggal}\n"
+            f"Akun: {akun}\n"
+            f"Tipe: {tipe}\n"
+            f"Nominal: Rp {nominal_formatted}\n\n"
+            "Ketik **YA** (atau ya) dalam 30 detik untuk hapus.\n"
+            "Ketik apa saja (misal 'batal') untuk batal."
+        )
+
+    except Exception as e:
+        await update.message.reply_text(f"Error hapus: {str(e)}\nCoba lagi atau lapor owner.")
+
+async def konfirmasi_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = hapus_pending.get(user_id)
+    if not state:
+        return  # bukan konfirmasi hapus
+
+    # Cek timeout
+    if time.time() - state['timestamp'] > 30:
+        hapus_pending.pop(user_id, None)
+        await update.message.reply_text("Konfirmasi hapus kadaluarsa. Ketik ulang /hapus kalau mau.")
+        return
+
+    text = update.message.text.strip().upper()
+    if text in ["YA", "Y", "YES"]:
+        try:
+            transaksi_sheet.delete_rows(state['row'])
+            await update.message.reply_text(f"✅ Transaksi baris {state['row']} berhasil dihapus bro!")
+        except Exception as e:
+            await update.message.reply_text(f"Gagal hapus: {str(e)}")
+    else:
+        await update.message.reply_text("Oke dibatalin, transaksi aman bro 😎")
+
+    # Hapus state setelah diproses
+    hapus_pending.pop(user_id, None)
 
 async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
@@ -1031,33 +1119,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ================= APP =================
-async def setup_webhook():
-    try:
-        webhook_url = f"{WEBHOOK_URL.rstrip('/')}/{TOKEN}"
-        print(f"DEBUG: Akan set webhook ke → {webhook_url}")
-        print(f"DEBUG: Listen port → {PORT}")
-        print(f"DEBUG: URL path → /{TOKEN}")
-
-        # Set webhook dulu
-        await app.bot.set_webhook(url=webhook_url)
-        print("Webhook berhasil diset!")
-
-        # Start aplikasi
-        await app.initialize()
-        await app.start()
-        await app.updater.start_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=TOKEN,
-            webhook_url=webhook_url
-        )
-        print("Webhook server berjalan! 🚀")
-
-    except Exception as e:
-        print("GAGAL SETUP WEBHOOK:")
-        print(traceback.format_exc())
-        raise
-
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
@@ -1069,57 +1130,59 @@ app.add_handler(CommandHandler("menu", help_command))
 app.add_handler(CommandHandler("laporan", laporan))
 app.add_handler(CommandHandler("ringkasan", ringkasan))
 app.add_handler(CommandHandler("riwayat", riwayat))
-app.add_handler(CommandHandler("history", riwayat))  # alias
+app.add_handler(CommandHandler("history", riwayat))
 app.add_handler(CommandHandler("export", export))
 app.add_handler(CommandHandler("reloaduser", reloaduser))
-app.add_handler(CallbackQueryHandler(button_callback))
+
+# Handler konfirmasi hapus diprioritaskan (group=0)
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, konfirmasi_hapus), group=0)
+
+# Handler message biasa (transaksi, dll) di group default
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-async def tes_tombol(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("Klik Aku!", callback_data="tes_klik")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Tes tombol bro:", reply_markup=reply_markup)
-
-app.add_handler(CommandHandler("testombol", tes_tombol))
-
-# ================= MODE POLLING STABIL (REKOMENDASI FINAL) =================
+# ================= WEBHOOK =================
 async def main():
     try:
         load_allowed_users_sync()
-        print("Startup: Allowed users loaded. MODE: POLLING")
+        print("Startup: Allowed users loaded.")
+
+        base_url = WEBHOOK_URL.rstrip('/')
+        webhook_url = f"{base_url}/{TOKEN}"
+        print(f"Webhook URL final: {webhook_url}")
+        print(f"Port: {PORT}")
+
+        print("Set webhook dengan allowed_updates full + drop pending...")
+        await app.bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+            max_connections=40
+        )
+        print("Webhook SET BERHASIL!")
 
         await app.initialize()
         await app.start()
 
-        print("Polling dimulai...")
+        await app.updater.start_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=TOKEN,
+            webhook_url=webhook_url,
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES
+        )
 
-        while True:
-            try:
-                await app.updater.start_polling(
-                    drop_pending_updates=True,
-                    allowed_updates=Update.ALL_TYPES,
-                    poll_interval=0.5,
-                    timeout=15,
-                    bootstrap_retries=-1
-                )
-                break  # kalau sukses, keluar loop
-            except telegram.error.Conflict as e:
-                print(f"Conflict detected: {e}. Retry setelah 10 detik...")
-                await asyncio.sleep(10)
-            except Exception as e:
-                print(f"Polling error lain: {e}")
-                await asyncio.sleep(5)
+        print("=====================================")
+        print(" BOT WEBHOOK JALAN! 🚀 ")
+        print(" Test: /hapus terakhir → balas YA untuk hapus ")
+        print("=====================================")
 
-        print("Polling stabil! Test tombol sekarang.")
         await asyncio.Event().wait()
 
     except Exception as e:
-        print("CRITICAL POLLING ERROR:")
+        print("CRITICAL ERROR:")
         print(traceback.format_exc())
         raise
-
 
 if __name__ == "__main__":
     asyncio.run(main())
