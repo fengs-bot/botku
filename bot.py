@@ -208,7 +208,7 @@ async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
-if len(context.args) < 1:
+    if len(context.args) < 1:
         await update.message.reply_text(
             "Format pro chart:\n"
             "/chart [periode] [tipe] [filter]\n\n"
