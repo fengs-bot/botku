@@ -714,20 +714,40 @@ app.add_handler(CommandHandler("reloaduser", reloaduser))
 app.add_handler(CallbackQueryHandler(button_callback))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Fungsi utama async untuk jalankan semuanya
-async def main():
-    # Load allowed users saat startup
-    await load_allowed_users()
-    print("Startup selesai, allowed users loaded.")
-    
+# Load allowed users saat startup (sync, karena startup script)
+load_allowed_users_sync()  # fungsi sync yang gue tambah di bawah
+
+# Fungsi sync untuk load user (ga perlu await)
+def load_allowed_users_sync():
+    global ALLOWED_USER_IDS
+    try:
+        user_sheet = spreadsheet.worksheet("USER")
+        user_data = user_sheet.get_all_values()[1:]
+        allowed = set()
+        for row in user_data:
+            if len(row) >= 1 and row[0].strip().isdigit():
+                user_id = int(row[0].strip())
+                status = row[2].strip().lower() if len(row) > 2 else "active"
+                if status == "active":
+                    allowed.add(user_id)
+        ALLOWED_USER_IDS = allowed
+        print(f"DEBUG: Loaded {len(allowed)} user allowed dari sheet USER")
+    except gspread.exceptions.WorksheetNotFound:
+        print("WARNING: Sheet 'USER' tidak ditemukan. Bot jadi public sementara.")
+        ALLOWED_USER_IDS = set()
+    except Exception as e:
+        print(f"ERROR load allowed users: {e}")
+        ALLOWED_USER_IDS = set()
+
+try:
     print(f"Starting webhook on port {PORT} with URL: {WEBHOOK_URL}/{TOKEN}")
-    await app.run_webhook(
+    app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path=TOKEN,
         webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
     )
-
-# Jalankan main async dengan cara yang benar
-if __name__ == "__main__":
-    asyncio.run(main())
+except Exception as e:
+    print("Webhook crash:")
+    print(traceback.format_exc())
+    raise
