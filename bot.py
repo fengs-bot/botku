@@ -378,7 +378,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def laporan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
-      try:
+    try:
         data = transaksi_sheet.get_all_values()[1:]
         if not data:
             await update.message.reply_text("Belum ada transaksi bro")
