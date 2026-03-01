@@ -252,17 +252,21 @@ async def hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Error hapus: {str(e)}\nCoba lagi atau lapor owner.")
 
-async def konfirmasi_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def konfirmasi_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """
+    Return True kalau pesan sudah diproses sebagai konfirmasi hapus (stop propagation).
+    Return False kalau bukan konfirmasi → lanjut ke handler berikutnya (handle_message).
+    """
     user_id = update.effective_user.id
     state = hapus_pending.get(user_id)
     if not state:
-        return  # BUKAN konfirmasi hapus → lanjut ke handler berikutnya (handle_message)
+        return False  # BUKAN konfirmasi → lanjut ke handle_message
 
-    # Ada state → ini konfirmasi hapus
+    # Ada state → proses konfirmasi
     if time.time() - state['timestamp'] > 30:
         hapus_pending.pop(user_id, None)
         await update.message.reply_text("Konfirmasi hapus kadaluarsa. Ketik ulang /hapus kalau mau.")
-        return  # selesai, ga lanjut ke handler lain
+        return True
 
     text = update.message.text.strip().upper()
     if text in ["YA", "Y", "YES"]:
@@ -274,10 +278,8 @@ async def konfirmasi_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     else:
         await update.message.reply_text("Oke dibatalin, transaksi aman bro 😎")
 
-    # Hapus state
     hapus_pending.pop(user_id, None)
-
-    # Jangan return kalau sudah diproses → biar ga lanjut ke handler lain
+    return True  # sudah diproses → stop, ga lanjut ke handle_message
 
 async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
