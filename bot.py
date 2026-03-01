@@ -1084,60 +1084,49 @@ async def tes_tombol(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 app.add_handler(CommandHandler("testombol", tes_tombol))
 
-async def setup_and_run():
-    """
-    Fungsi utama async untuk:
-    - load data awal
-    - set webhook
-    - start bot
-    """
+async def main():
     try:
-        # 1. Load allowed users dulu (sync, aman)
         load_allowed_users_sync()
-        print("Startup selesai, allowed users loaded.")
+        print("Startup: Allowed users loaded.")
 
-        # 2. Siapkan webhook URL (tanpa trailing slash di akhir base URL)
-        webhook_url = f"{WEBHOOK_URL.rstrip('/')}/{TOKEN}"
-        print(f"DEBUG: Webhook URL yang akan digunakan → {webhook_url}")
-        print(f"DEBUG: Listen di port → {PORT}")
-        print(f"DEBUG: URL path → /{TOKEN}")
+        base_url = WEBHOOK_URL.rstrip('/')
+        webhook_url = f"{base_url}/{TOKEN}"
+        print(f"Webhook URL final: {webhook_url}")
+        print(f"Port: {PORT}")
 
-        # 3. Set webhook secara eksplisit (penting di Railway)
-        print("Sedang set webhook ke Telegram...")
-        await app.bot.set_webhook(url=webhook_url)
-        print("Webhook berhasil diset ke Telegram!")
+        # Tambah ini: explicit allowed_updates + drop pending
+        print("Set webhook dengan allowed_updates full + drop pending...")
+        await app.bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=Update.ALL_TYPES,  # <-- KRUSIAL: kirim SEMUA jenis update termasuk callback_query
+            drop_pending_updates=True          # <-- Hapus update lama biar ga numpuk
+        )
+        print("Webhook SET BERHASIL dengan semua update types!")
 
-        # 4. Initialize & start aplikasi
         await app.initialize()
         await app.start()
 
-        # 5. Jalankan webhook server
         await app.updater.start_webhook(
             listen="0.0.0.0",
             port=PORT,
             url_path=TOKEN,
-            webhook_url=webhook_url
+            webhook_url=webhook_url,
+            drop_pending_updates=True,         # <-- lagi biar aman
+            allowed_updates=Update.ALL_TYPES   # <-- pastiin di updater juga
         )
-        
-        print("=======================================")
-        print(" BOT BERHASIL JALAN DENGAN WEBHOOK! 🚀 ")
-        print("=======================================")
-        
-        # Biar tetap jalan selamanya (penting di Railway)
-        await asyncio.Event().wait()  # tunggu selamanya
+
+        print("=====================================")
+        print(" BOT WEBHOOK FULL UPDATE TYPES! 🚀 ")
+        print(" Coba /testombol lagi lalu klik tombol ")
+        print("=====================================")
+
+        await asyncio.Event().wait()  # keep alive
 
     except Exception as e:
-        print("=======================================")
-        print(" GAGAL START BOT / WEBHOOK ")
-        print("=======================================")
+        print("CRITICAL ERROR:")
         print(traceback.format_exc())
         raise
 
-
-# ────────────────────────────────────────────────
-#   JALANKAN SEMUA (INI YANG DIPANGGIL SAAT SCRIPT DI-RUN)
-# ────────────────────────────────────────────────
-
+# Di akhir script
 if __name__ == "__main__":
-    # Pastikan app sudah dibuat dan handler sudah ditambahkan
-    asyncio.run(setup_and_run())
+    asyncio.run(main())
