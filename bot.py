@@ -97,7 +97,6 @@ except Exception as e:
 
 try:
     # Load allowed users saat startup
-    await load_allowed_users()  # <-- GANTI JADI INI (pakai await)
 
     print(f"Starting webhook on port {PORT} with URL: {WEBHOOK_URL}/{TOKEN}")
     app.run_webhook(
@@ -740,6 +739,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ================= APP =================
+async def startup():
+    await load_allowed_users()
+    print("Startup selesai, allowed users loaded.")
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
@@ -752,6 +754,10 @@ app.add_handler(CallbackQueryHandler(button_callback))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 try:
+    # Jalankan startup async
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(startup())
+
     print(f"Starting webhook on port {PORT} with URL: {WEBHOOK_URL}/{TOKEN}")
     app.run_webhook(
         listen="0.0.0.0",
