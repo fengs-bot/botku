@@ -26,6 +26,13 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 import gspread
 from google.oauth2.service_account import Credentials
 
+def format_rupiah(angka):
+    try:
+        num = int(str(angka).replace(",", "").replace(".", ""))
+        return f"{num:,}"
+    except:
+        return str(angka)
+
 # ================= ENV =================
 TOKEN = os.getenv("TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
@@ -615,13 +622,20 @@ async def hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        # Ubah nominal jadi integer dulu, biar aman
+        try:
+            nominal_int = int(transaksi[6].replace(",", "").replace(".", ""))  # hapus koma & titik kalau ada
+            nominal_formatted = f"{nominal_int:,}"
+        except:
+            nominal_formatted = transaksi[6]  # kalau gagal, pakai aslinya aja (aman ga crash)
+
         await update.message.reply_text(
             f"Yakin mau hapus transaksi ini?\n\n"
             f"Baris: {row_to_delete}\n"
             f"Tanggal: {tanggal}\n"
             f"Akun: {akun}\n"
             f"Tipe: {tipe}\n"
-            f"Nominal: Rp {nominal:,}\n",
+            f"Nominal: Rp {nominal_formatted}\n",
             reply_markup=reply_markup
         )
 
