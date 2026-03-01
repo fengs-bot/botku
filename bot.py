@@ -441,13 +441,21 @@ async def laporan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Error laporan: {str(e)}")
 
+async def tes_tombol(update: Update, context):
+    keyboard = [
+        [InlineKeyboardButton("Klik Aku!", callback_data="tes_klik")]
+    ]
+    await update.message.reply_text("Tes tombol:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+app.add_handler(CommandHandler("testombol", tes_tombol))
+
 # Callback untuk inline keyboard
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     print(f"DEBUG CALLBACK DITERIMA: data='{query.data}' dari user {update.effective_user.id}")  # <-- TAMBAH BARIS INI
 
     await query.answer()  # ini penting biar tombol ga stuck "loading..." lama 
-    
+
     data = query.data
     print(f"DEBUG: Tombol diklik: {data} oleh user {update.effective_user.id}")
 
@@ -1074,18 +1082,26 @@ def load_allowed_users_sync():
         ALLOWED_USER_IDS = set()
 
 try:
-    # Load allowed users saat startup (sync, aman tanpa loop)
     load_allowed_users_sync()
     print("Startup selesai, allowed users loaded.")
 
-    print(f"Starting webhook on port {PORT} with URL: {WEBHOOK_URL}/{TOKEN}")
-    app.run_webhook(
+    webhook_url = f"{WEBHOOK_URL.rstrip('/')}/{TOKEN}"
+    print(f"AKAN SET WEBHOOK KE: {webhook_url}")
+    print(f"Listen di port: {PORT}")
+    print(f"URL path: /{TOKEN}")
+
+    # Set webhook dulu secara eksplisit (lebih aman di Railway)
+    await app.bot.set_webhook(url=webhook_url)
+
+    await app.start()
+    await app.updater.start_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path=TOKEN,
-        webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
+        webhook_url=webhook_url
     )
+    print("Webhook berhasil dijalankan!")
 except Exception as e:
-    print("Webhook crash:")
+    print("GAGAL START WEBHOOK:")
     print(traceback.format_exc())
     raise
