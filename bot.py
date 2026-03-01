@@ -1080,6 +1080,7 @@ app.add_handler(CommandHandler("riwayat", riwayat))
 app.add_handler(CommandHandler("history", riwayat))  # alias
 app.add_handler(CommandHandler("export", export))
 app.add_handler(CommandHandler("reloaduser", reloaduser))
+app.add_handler(CommandHandler("testombol", tes_tombol))
 app.add_handler(CallbackQueryHandler(button_callback))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
