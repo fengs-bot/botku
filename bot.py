@@ -5,6 +5,7 @@ import traceback
 import difflib
 from datetime import datetime
 import asyncio
+import csv
 
 print("=== BOT MULAI JALAN DI RAILWAY ===")
 print("Python version:", sys.version)
@@ -442,6 +443,126 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'hapus_last':
         await hapus(update, context)  # asumsikan ada fungsi hapus terakhir
 
+async def ringkasan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
+
+    try:
+        data = transaksi_sheet.get_all_values()[1:]
+        if not data:
+            await update.message.reply_text("Belum ada transaksi bro")
+            return
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        this_week_start = (datetime.now() - timedelta(days=datetime.now().weekday())).strftime("%Y-%m-%d")
+        this_month = today[:7]
+
+        daily_income = daily_expense = 0
+        weekly_income = weekly_expense = 0
+        monthly_income = monthly_expense = 0
+
+        for row in data:
+            if len(row) < 7:
+                continue
+            date_str = row[0][:10]  # YYYY-MM-DD
+            tipe = row[3]
+            amount = int(row[6]) if row[6].isdigit() else 0
+
+            if tipe == "Income":
+                if date_str == today:
+                    daily_income += amount
+                if date_str >= this_week_start:
+                    weekly_income += amount
+                if date_str.startswith(this_month):
+                    monthly_income += amount
+            else:
+                if date_str == today:
+                    daily_expense += amount
+                if date_str >= this_week_start:
+                    weekly_expense += amount
+                if date_str.startswith(this_month):
+                    monthly_expense += amount
+
+        message = f"Ringkasan Keuangan:\n\n"
+        message += f"**Hari ini ({today}):**\n"
+        message += f"Pemasukan: Rp {daily_income:,}\n"
+        message += f"Pengeluaran: Rp {daily_expense:,}\n"
+        message += f"Net: Rp {daily_income - daily_expense:,}\n\n"
+
+        message += f"**Minggu ini (sejak {this_week_start}):**\n"
+        message += f"Pemasukan: Rp {weekly_income:,}\n"
+        message += f"Pengeluaran: Rp {weekly_expense:,}\n"
+        message += f"Net: Rp {weekly_income - weekly_expense:,}\n\n"
+
+        message += f"**Bulan ini ({this_month}):**\n"
+        message += f"Pemasukan: Rp {monthly_income:,}\n"
+        message += f"Pengeluaran: Rp {monthly_expense:,}\n"
+        message += f"Net: Rp {monthly_income - monthly_expense:,}"
+
+        await update.message.reply_text(message)
+    except Exception as e:
+        await update.message.reply_text(f"Error ringkasan: {str(e)}")
+
+async def riwayat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
+
+    if len(context.args) < 1:
+        await update.message.reply_text("Format: /riwayat <akun>\nContoh: /riwayat BCA")
+        return
+
+    akun = context.args[0].upper()
+    if not account_exists(akun):
+        await update.message.reply_text(f"Akun '{akun}' ga ketemu di sheet Account.")
+        return
+
+    try:
+        data = transaksi_sheet.get_all_values()[1:]
+        transaksi_akun = [row for row in data if len(row) >= 7 and row[2].strip().upper() == akun]
+        transaksi_akun.sort(key=lambda x: x[0], reverse=True)  # urut terbaru
+
+        if not transaksi_akun:
+            await update.message.reply_text(f"Belum ada transaksi di akun {akun}.")
+            return
+
+        message = f"Riwayat 10 transaksi terakhir di {akun}:\n\n"
+        for row in transaksi_akun[:10]:
+            tanggal = row[0]
+            tipe = row[3]
+            kategori = row[5]
+            nominal = int(row[6])
+            desk = row[7] if len(row) > 7 else "-"
+            sign = "+" if tipe == "Income" else "-"
+            message += f"{tanggal} | {sign}Rp {nominal:,} | {kategori} | {desk}\n"
+
+        await update.message.reply_text(message)
+    except Exception as e:
+        await update.message.reply_text(f"Error riwayat: {str(e)}")
+
+async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
+
+    try:
+        data = transaksi_sheet.get_all_values()
+        if not data:
+            await update.message.reply_text("Belum ada data transaksi.")
+            return
+
+        filename = f"transaksi_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        with open(filename, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerows(data)
+
+        await update.message.reply_document(
+            document=open(filename, 'rb'),
+            caption="Ini file CSV semua transaksi lu bro. Buka di Excel/Google Sheets ya!"
+        )
+
+        os.remove(filename)
+    except Exception as e:
+        await update.message.reply_text(f"Error export: {str(e)}")
+
 async def reloaduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     print(f"DEBUG: /reloaduser dipanggil oleh user ID {user_id}")
@@ -636,6 +757,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         account = possible_accounts[0]  # ambil yang pertama, kalau banyak bisa tambah pilihan nanti
 
+# Auto-kategori pintar dari deskripsi (sebelum fuzzy)
+auto_cat = None
+desc_lower = description.lower() if 'description' in locals() else text_lower
+if any(kw in desc_lower for kw in ["grab", "gojek", "ojol", "maxim", "transport", "bensin"]):
+    auto_cat = next((c for c in categories if c["sub"].lower() == "transportasi"), None)
+elif any(kw in desc_lower for kw in ["shopee", "tokopedia", "lazada", "belanja", "online", "e-commerce"]):
+    auto_cat = next((c for c in categories if c["sub"].lower() == "belanja online"), None)
+elif any(kw in desc_lower for kw in ["gaji", "bonus", "honor", "pendapatan"]):
+    auto_cat = next((c for c in categories if c["sub"].lower() == "gaji"), None)
+elif any(kw in desc_lower for kw in ["makan", "warteg", "resto", "food", "kuliner"]):
+    auto_cat = next((c for c in categories if c["sub"].lower() == "makan"), None)
+
+if auto_cat:
+    best_cat = auto_cat
+    print(f"DEBUG: Auto-kategori match: {auto_cat['sub']} dari deskripsi '{description}'")
+
+else:
+    # Lanjut ke fuzzy match seperti biasa
+    # ... (kode fuzzy lu tetap ada di sini)
         # Kategori: fuzzy + gabung kata
         remaining = " ".join(parts[:nominal_idx] + parts[nominal_idx+1:])
         remaining_words = remaining.split()
@@ -735,6 +875,10 @@ app.add_handler(CommandHandler("chart", chart))
 app.add_handler(CommandHandler("help", help_command))
 app.add_handler(CommandHandler("menu", help_command))
 app.add_handler(CommandHandler("laporan", laporan))
+app.add_handler(CommandHandler("ringkasan", ringkasan))
+app.add_handler(CommandHandler("riwayat", riwayat))
+app.add_handler(CommandHandler("history", riwayat))  # alias
+app.add_handler(CommandHandler("export", export))
 app.add_handler(CommandHandler("reloaduser", reloaduser))
 app.add_handler(CallbackQueryHandler(button_callback))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
