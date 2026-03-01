@@ -4,6 +4,7 @@ import json
 import traceback
 import difflib
 from datetime import datetime
+import asyncio
 
 print("=== BOT MULAI JALAN DI RAILWAY ===")
 print("Python version:", sys.version)
