@@ -468,20 +468,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
 
-    keyboard = [
-        [InlineKeyboardButton("💰 Cek Saldo", callback_data='saldo'),
-         InlineKeyboardButton("📊 Ringkasan", callback_data='ringkasan')],
-        [InlineKeyboardButton("📈 Chart", callback_data='chart'),
-         InlineKeyboardButton("📜 Riwayat", callback_data='riwayat')],
-        [InlineKeyboardButton("📤 Export CSV", callback_data='export'),
-         InlineKeyboardButton("🔄 Reload User", callback_data='reloaduser')],
-        [InlineKeyboardButton("📋 Laporan", callback_data='laporan')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
     await update.message.reply_text(
-        "Menu Cepat Bot Keuangan Pro:\n"
-        "Klik tombol di bawah atau ketik perintah langsung\n\n"
+        "Menu Cepat Bot Keuangan Pro:\n\n"
         "• Catat transaksi: BCA 50rb makan\n"
         "• Transfer: transfer BCA 100rb ke GOPAY\n"
         "• /saldo → Cek semua saldo\n"
@@ -491,8 +479,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /chart 2025-02 → Grafik pengeluaran\n"
         "• /laporan → Total income & expense\n"
         "• /reloaduser → Update daftar user (owner only)\n"
-        "• /help atau /menu → Tampilkan menu ini lagi",
-        reply_markup=reply_markup
+        "• /help atau /menu → Tampilkan menu ini lagi\n\n"
+        "Semua fitur sekarang tanpa tombol, cukup ketik perintah atau konfirmasi teks (seperti YA untuk hapus)."
     )
 
 async def laporan(update: Update, context: ContextTypes.DEFAULT_TYPE):
