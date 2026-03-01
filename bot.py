@@ -451,24 +451,23 @@ async def reloaduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("DEBUG: Bukan owner")
         return
 
-    # Debug: cek apakah owner sendiri diizinkan
+    # Cek apakah owner sendiri diizinkan
     if user_id not in ALLOWED_USER_IDS:
         await update.message.reply_text("ID lu ga ada di daftar allowed (sheet USER). Cek sheet dulu!")
         print(f"DEBUG: Owner ditolak, ID {user_id} tidak di ALLOWED_USER_IDS {ALLOWED_USER_IDS}")
         return
 
     print("DEBUG: Mulai reload dari sheet USER")
-    success = load_allowed_users_sync()  # <-- FIX DISINI
+    load_allowed_users_sync()
     print(f"DEBUG: Reload selesai, sekarang {len(ALLOWED_USER_IDS)} user")
 
-    if success:
-        await update.message.reply_text(
-            f"Reload user berhasil! Sekarang ada {len(ALLOWED_USER_IDS)} user aktif.\n"
-            f"User ID yang diizinkan: {', '.join(map(str, sorted(ALLOWED_USER_IDS)))}\n\n"
-            "Kalau ga berubah, cek sheet USER dan kolom A (ID) + kolom C (active)."
-        )
-    else:
-        await update.message.reply_text("Gagal reload dari sheet USER. Cek logs Railway atau sheetnya.")
+    # BALASAN KE CHAT (INI YANG KURANG TADI)
+    await update.message.reply_text(
+        f"Reload user berhasil bro! 🔥\n"
+        f"Sekarang ada {len(ALLOWED_USER_IDS)} user aktif diizinkan.\n"
+        f"User ID yang terdaftar: {', '.join(map(str, sorted(ALLOWED_USER_IDS)))}\n\n"
+        "Kalau ga berubah, cek sheet 'USER' dan pastiin ID lu ada di kolom A + 'active' di kolom C."
+    )
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
