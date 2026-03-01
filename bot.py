@@ -714,21 +714,20 @@ app.add_handler(CommandHandler("reloaduser", reloaduser))
 app.add_handler(CallbackQueryHandler(button_callback))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-async def startup():
+# Fungsi utama async untuk jalankan semuanya
+async def main():
+    # Load allowed users saat startup
     await load_allowed_users()
     print("Startup selesai, allowed users loaded.")
-
-try:
-    # Jalankan startup async dengan aman
-    asyncio.run(startup())
+    
     print(f"Starting webhook on port {PORT} with URL: {WEBHOOK_URL}/{TOKEN}")
-    app.run_webhook(
+    await app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path=TOKEN,
         webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
     )
-except Exception as e:
-    print("Webhook crash:")
-    print(traceback.format_exc())
-    raise
+
+# Jalankan main async dengan cara yang benar
+if __name__ == "__main__":
+    asyncio.run(main())
