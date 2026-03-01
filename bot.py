@@ -1060,6 +1060,14 @@ async def setup_webhook():
 
 app = ApplicationBuilder().token(TOKEN).build()
 
+import logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.DEBUG
+)
+logger = logging.getLogger(__name__)
+logger.debug("Application dibuat")
+
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("saldo", saldo))
 app.add_handler(CommandHandler("chart", chart))
