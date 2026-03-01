@@ -849,7 +849,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if best_cat:
         print(f"DEBUG: Auto-kategori match: {best_cat['sub']} dari teks '{text}'")
-        description = original_text
+    # Deskripsi: pakai full teks kalau ga ada remaining_words (safe default)
+    description = original_text
+
+    if best_cat and 'remaining_words' in locals():  # kalau fuzzy jalan
+        description = " ".join([w for w in remaining_words if w not in best_match_text.lower() and w not in account.lower()]).strip() or original_text
     else:
         # 2. Fuzzy match (threshold diturunin biar gampang match "makan", "warteg", dll)
         remaining = " ".join(parts[:nominal_idx] + parts[nominal_idx+1:])
