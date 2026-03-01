@@ -95,20 +95,6 @@ except Exception as e:
     print(traceback.format_exc())
     raise
 
-try:
-    # Load allowed users saat startup
-
-    print(f"Starting webhook on port {PORT} with URL: {WEBHOOK_URL}/{TOKEN}")
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TOKEN,
-        webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
-    )
-except Exception as e:
-    print("Webhook crash:")
-    print(traceback.format_exc())
-    raise
 
 # ================= FUNCTIONS =================
 def parse_nominal(nominal_text):
