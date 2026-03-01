@@ -739,11 +739,12 @@ app.add_handler(CommandHandler("reloaduser", reloaduser))
 app.add_handler(CallbackQueryHandler(button_callback))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-try:
-    # Jalankan startup async
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(startup())
+async def startup():
+    await load_allowed_users()
+    print("Startup selesai, allowed users loaded.")
 
+try:
+    asyncio.run(startup())
     print(f"Starting webhook on port {PORT} with URL: {WEBHOOK_URL}/{TOKEN}")
     app.run_webhook(
         listen="0.0.0.0",
