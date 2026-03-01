@@ -1106,11 +1106,10 @@ async def main():
         await app.updater.start_polling(
             drop_pending_updates=True,
             allowed_updates=Update.ALL_TYPES,
-            poll_interval=0.5,   # cek sering
-            timeout=15,          # tunggu lebih lama kalau network lambat
-            bootstrap_retries=-1 # retry selamanya kalau gagal
+            poll_interval=0.5,
+            timeout=15,
+            bootstrap_retries=-1  # retry selamanya
         )
-
         # Keep alive
         await asyncio.Event().wait()
 
