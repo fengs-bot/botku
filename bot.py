@@ -74,11 +74,14 @@ async def reloaduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Maaf, command ini hanya untuk owner bot.")
         return
 
-    load_allowed_users_sync()  # panggil sync langsung
-    await update.message.reply_text(
-        f"Reload user berhasil! Sekarang ada {len(ALLOWED_USER_IDS)} user aktif diizinkan.\n"
-        f"User ID yang diizinkan: {', '.join(map(str, sorted(ALLOWED_USER_IDS)))}"
-    )
+    success = load_allowed_users_sync()  # <-- FIX: panggil sync tanpa await
+    if success:
+        await update.message.reply_text(
+            f"Reload user berhasil! Sekarang ada {len(ALLOWED_USER_IDS)} user aktif diizinkan.\n"
+            f"User ID yang diizinkan: {', '.join(map(str, sorted(ALLOWED_USER_IDS)))}"
+        )
+    else:
+        await update.message.reply_text("Gagal reload dari sheet USER. Cek logs atau sheetnya.")
 
 # ================= GOOGLE SHEETS =================
 scope = [
