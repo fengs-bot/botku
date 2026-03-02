@@ -111,6 +111,14 @@ except Exception as e:
 hapus_pending = defaultdict(dict)  # user_id → {'row': int, 'timestamp': float, 'chat_id': int}
 
 # ================= FUNCTIONS =================
+
+def parse_sheet_amount(value):
+    try:
+        clean_value = str(value).replace("Rp", "").replace(",", "").strip()
+        return int(float(clean_value))
+    except:
+        return 0
+
 def parse_nominal(nominal_text):
     try:
         nominal_text = str(nominal_text).lower().replace(".", "").replace(",", "").strip()
@@ -359,7 +367,7 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tipe = row[3]
             category = row[5]
             try:
-                amount = int(row[6])
+                amount = parse_sheet_amount(row[6])
             except:
                 continue
 
@@ -491,7 +499,7 @@ async def laporan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if len(row) < 7:
                 continue
             tipe = row[3]
-            amount = int(row[6]) if row[6].isdigit() else 0
+            amount = parse_sheet_amount(row[6])
             category = row[5]
 
             if tipe == "Income":
@@ -626,7 +634,7 @@ async def ringkasan(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 continue
             date_str = row[0][:10]  # YYYY-MM-DD
             tipe = row[3]
-            amount = int(row[6]) if row[6].isdigit() else 0
+            amount = parse_sheet_amount(row[6])
 
             if tipe == "Income":
                 if date_str == today:
@@ -690,7 +698,7 @@ async def riwayat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tanggal = row[0]
             tipe = row[3]
             kategori = row[5]
-            nominal = int(row[6])
+            nominal = parse_sheet_amount(row[6])
             desk = row[7] if len(row) > 7 else "-"
             sign = "+" if tipe == "Income" else "-"
             message += f"{tanggal} | {sign}Rp {nominal:,} | {kategori} | {desk}\n"
