@@ -582,9 +582,19 @@ async def riwayat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        data = transaksi_sheet.get_all_values()[1:]
-        transaksi_akun = [row for row in data if len(row) >= 7 and row[2].strip().upper() == akun]
-        transaksi_akun.sort(key=lambda x: x[0], reverse=True)  # urut terbaru
+        # ─── INI YANG DIPERBAIKI ───
+        # Ganti transaksi_sheet jadi get_current_year_sheet()
+        sheet = get_current_year_sheet()   # atau get_transaksi_sheet_by_year("2026") kalau spesifik tahun
+        data = sheet.get_all_values()[1:]  # skip header
+        
+        # Filter transaksi berdasarkan akun
+        transaksi_akun = [
+            row for row in data 
+            if len(row) >= 7 and row[2].strip().upper() == akun
+        ]
+        
+        # Urut terbaru (berdasarkan tanggal kolom 0)
+        transaksi_akun.sort(key=lambda x: x[0], reverse=True)
 
         if not transaksi_akun:
             await update.message.reply_text(f"Belum ada transaksi di akun {akun}.")
@@ -601,8 +611,9 @@ async def riwayat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message += f"{tanggal} | {sign}Rp {nominal:,} | {kategori} | {desk}\n"
 
         await update.message.reply_text(message)
+
     except Exception as e:
-        await update.message.reply_text(f"Error riwayat: {str(e)}")
+        await update.message.reply_text(f"Error riwayat: {str(e)}\nCoba lagi atau cek log.")
 
 async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
