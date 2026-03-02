@@ -81,17 +81,6 @@ async def is_allowed_user(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return False
     return True
 
-async def reloaduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id != OWNER_ID:
-        await update.message.reply_text("Maaf, command ini hanya untuk owner bot.")
-        return
-
-    load_allowed_users_sync()
-    await update.message.reply_text(
-        f"Reload user berhasil! Sekarang ada {len(ALLOWED_USER_IDS)} user aktif diizinkan.\n"
-        f"User ID yang terdaftar: {', '.join(map(str, sorted(ALLOWED_USER_IDS)))}"
-    )
 
 # ================= GOOGLE SHEETS =================
 scope = [
@@ -156,28 +145,20 @@ def account_exists(account_name):
 
 def get_current_balance(account_name):
     try:
-        transaksi = transaksi_sheet.get_all_values()[1:]
         account_data = account_sheet.get_all_values()[1:]
-        saldo = 0
 
         for row in account_data:
             if row and row[0].strip().upper() == account_name.strip().upper():
-                saldo = int(row[1]) if row[1].strip().isdigit() else 0
-                break
 
-        for row in transaksi:
-            if row and row[2].strip().upper() == account_name.strip().upper():
-                tipe = row[3]
-                try:
-                    amount = int(row[6])
-                except:
-                    continue
-                if tipe == "Income":
-                    saldo += amount
-                else:
-                    saldo -= amount
+                # Kolom C = Saldo Akhir (hasil rumus)
+                if len(row) > 2:
+                    try:
+                        return int(str(row[2]).replace(",", "").replace(".", ""))
+                    except:
+                        return 0
 
-        return saldo
+        return 0
+
     except Exception as e:
         print(f"Error get balance {account_name}: {e}")
         return 0
@@ -775,19 +756,6 @@ async def reloaduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Kalau ga berubah, cek sheet 'USER' dan pastiin ID lu ada di kolom A + 'active' di kolom C."
     )
 
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == 'saldo':
-        await saldo(update, context)
-    elif query.data == 'chart':
-        await query.edit_message_text("Kirim perintah: /chart 2025-02")
-    elif query.data == 'transaksi':
-        await query.edit_message_text("Kirim contoh: BCA 50rb makan")
-    elif query.data == 'hapus':
-        await query.edit_message_text("Kirim: /hapus 10 atau /hapus terakhir")
-
 # ================= HANDLE MESSAGE FINAL PRO VERSION =================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
@@ -981,32 +949,25 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 # ================= WEBHOOK =================
 async def main():
-    try:
-        load_allowed_users_sync()
-        print("Startup: Allowed users loaded.")
+    load_allowed_users_sync()
 
-        base_url = WEBHOOK_URL.rstrip('/')
-        webhook_url = f"{base_url}/{TOKEN}"
-        print(f"Webhook URL final: {webhook_url}")
+    base_url = WEBHOOK_URL.rstrip('/')
+    webhook_url = f"{base_url}/{TOKEN}"
 
-        await app.bot.set_webhook(
-            url=webhook_url,
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True
-        )
-        print("Webhook SET BERHASIL!")
+    await app.initialize()
+    await app.start()
 
-        await app.initialize()
-        await app.start()
+    await app.bot.set_webhook(
+        url=webhook_url,
+        drop_pending_updates=True
+    )
 
-        await app.updater.start_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=TOKEN,
-            webhook_url=webhook_url,
-            drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES
-        )
+    await app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=TOKEN,
+        webhook_url=webhook_url,
+    )
 
         print("BOT WEBHOOK JALAN! 🚀 Test transaksi sekarang.")
 
