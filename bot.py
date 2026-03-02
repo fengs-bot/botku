@@ -776,7 +776,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'hapus':
         await query.edit_message_text("Kirim: /hapus 10 atau /hapus terakhir")
 
-# ================= HANDLE MESSAGE (INI YANG PALING PENTING) =================
+# ================= HANDLE MESSAGE FINAL PRO VERSION =================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
@@ -785,179 +785,167 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     original_text = text
     text_lower = text.lower()
-
     user_name = update.message.from_user.first_name
-    print(f"DEBUG: Pesan masuk dari {user_name}: '{original_text}'")
 
-    # === CEK KONfirmASI HAPUS DULU ===
+    print(f"DEBUG: Pesan masuk: '{original_text}'")
+
+    # ================= CEK KONFIRMASI HAPUS =================
     state = hapus_pending.get(user_id)
     if state:
         if time.time() - state['timestamp'] > 30:
             hapus_pending.pop(user_id, None)
-            await update.message.reply_text("Konfirmasi hapus kadaluarsa. Ketik ulang /hapus kalau mau.")
+            await update.message.reply_text("Konfirmasi hapus kadaluarsa.")
             return
 
         if text_lower in ["ya", "y", "yes"]:
-            try:
-                transaksi_sheet.delete_rows(state['row'])
-                await update.message.reply_text(f"✅ Transaksi baris {state['row']} berhasil dihapus bro!")
-            except Exception as e:
-                await update.message.reply_text(f"Gagal hapus: {str(e)}")
+            transaksi_sheet.delete_rows(state['row'])
+            await update.message.reply_text("✅ Transaksi berhasil dihapus.")
         else:
-            await update.message.reply_text("Oke dibatalin, transaksi aman bro 😎")
+            await update.message.reply_text("Oke dibatalin 😎")
 
         hapus_pending.pop(user_id, None)
-        return  # stop di sini, ga lanjut ke transaksi biasa
-
-    # === LOGIKA CHIT-CHAT ===
-    if len(text_lower.split()) <= 1 or text_lower in ["halo", "hai", "tes", "test", "ok", "bro"]:
-        await update.message.reply_text(
-            f"Halo {user_name}! 👋\n"
-            "Mau catat transaksi apa hari ini?\n\n"
-            "Contoh cepat:\n"
-            "• BCA 75rb makan warteg\n"
-            "• gopay 2jt gaji\n"
-            "• transfer mandiri 300rb ke dana bayar tagihan\n\n"
-            "Atau ketik /saldo /chart /hapus"
-        )
         return
 
+    # ================= LOAD CATEGORY =================
     categories = load_categories()
     if not categories:
-        await update.message.reply_text("Maaf bro, kategori ga bisa di-load. Cek sheet Categories ya.")
+        await update.message.reply_text("Sheet Categories kosong atau error.")
         return
 
-    # Definisi dasar
     parts = text_lower.split()
-    nominal = None
-    nominal_idx = -1
-    possible_accounts = [p.upper() for p in parts if account_exists(p.upper())]
-    account = possible_accounts[0] if possible_accounts else None
 
-    # Cari nominal
-    for i, p in enumerate(parts):
+    # ================= PARSE NOMINAL =================
+    nominal = None
+    for p in parts:
         try:
             nominal = parse_nominal(p)
-            nominal_idx = i
             break
         except:
             continue
 
     if nominal is None:
-        await update.message.reply_text("Nominalnya ga kebaca bro. Contoh: 500rb, 1jt, 75000")
+        await update.message.reply_text("Nominal ga kebaca bro. Contoh: 50rb, 1jt.")
         return
 
-    if not account:
-        await update.message.reply_text("Akun ga ketemu bro. Pastiin nama akun sama dengan di sheet Account.")
-        return
+    # ================= CEK TRANSFER =================
+    if text_lower.startswith("transfer"):
+        # Format: transfer BCA 100rb ke GOPAY
+        try:
+            from_acc = parts[1].upper()
+            to_index = parts.index("ke")
+            to_acc = parts[to_index + 1].upper()
+        except:
+            await update.message.reply_text("Format transfer salah.\nContoh: transfer BCA 100rb ke GOPAY")
+            return
 
-    # ================= AUTO CATEGORIES SUPER LENGKAP =================
-    best_cat = None
-    best_score = 0.0
-    best_match_text = ""
+        if not account_exists(from_acc) or not account_exists(to_acc):
+            await update.message.reply_text("Akun sumber atau tujuan ga ketemu.")
+            return
 
-    desc_lower = text_lower
+        saldo_now = get_current_balance(from_acc)
+        if saldo_now < nominal:
+            await update.message.reply_text(
+                f"Saldo {from_acc} kurang bro.\nSekarang: Rp {saldo_now:,}"
+            )
+            return
 
-    # Auto match dengan keyword yang sangat lengkap
-    if any(kw in desc_lower for kw in ["grab", "gojek", "ojol", "maxim", "transport", "bensin", "parkir", "tol", "ojek", "taksi", "motor", "mobil", "angkot", "bus", "kereta"]):
-        best_cat = next((c for c in categories if any(x in c["sub"].lower() for x in ["transport", "transportasi", "bensin", "parkir", "tol"])), None)
+        tanggal = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    elif any(kw in desc_lower for kw in ["makan", "warteg", "warung", "resto", "food", "kuliner", "nasi", "kopi", "minum", "jajan", "gorengan", "mie", "ayam", "bakso", "sate", "pizza", "burger", "cafe", "kedai", "es", "teh", "kopi"]):
-        best_cat = next((c for c in categories if any(x in c["sub"].lower() for x in ["makan", "makanan", "kuliner", "food"])), None)
+        # Debit dari sumber
+        transaksi_sheet.append_row([
+            tanggal, user_name, from_acc,
+            "Expenses", "Transfer", "Transfer Out",
+            nominal, f"Transfer ke {to_acc}"
+        ])
 
-    elif any(kw in desc_lower for kw in ["shopee", "tokopedia", "lazada", "tiktok", "belanja", "online", "shop", "e-commerce", "marketplace", "baju", "sepatu", "gadget", "hp", "laptop"]):
-        best_cat = next((c for c in categories if any(x in c["sub"].lower() for x in ["belanja", "online", "shop"])), None)
+        # Kredit ke tujuan
+        transaksi_sheet.append_row([
+            tanggal, user_name, to_acc,
+            "Income", "Transfer", "Transfer In",
+            nominal, f"Transfer dari {from_acc}"
+        ])
 
-    elif any(kw in desc_lower for kw in ["gaji", "bonus", "honor", "salary", "upah", "pendapatan", "uang masuk", " THR "]):
-        best_cat = next((c for c in categories if any(x in c["sub"].lower() for x in ["gaji", "pemasukan", "pendapatan"])), None)
-
-    elif any(kw in desc_lower for kw in ["pulsa", "kuota", "paket data", "internet", "telkomsel", "xl", "axis", "indosat", "smartfren", "by.u"]):
-        best_cat = next((c for c in categories if any(x in c["sub"].lower() for x in ["pulsa", "kuota", "internet"])), None)
-
-    elif any(kw in desc_lower for kw in ["tagihan", "listrik", "pln", "air", "pdam", "bpjs", "tv", "telepon", "indihome", "bayar"]):
-        best_cat = next((c for c in categories if any(x in c["sub"].lower() for x in ["tagihan", "utilitas"])), None)
-
-    if best_cat:
-        print(f"DEBUG: Auto-kategori match: {best_cat['sub']} dari teks '{text}'")
-        description = original_text
-    else:
-        # Fuzzy match super longgar
-        remaining = " ".join(parts[:nominal_idx] + parts[nominal_idx+1:])
-        remaining_words = remaining.split()
-
-        for cat in categories:
-            sub_lower = cat["sub"].lower()
-
-            for word in remaining_words:
-                score = difflib.SequenceMatcher(None, word, sub_lower).ratio()
-                if score > best_score and score > 0.45:
-                    best_score = score
-                    best_cat = cat
-                    best_match_text = word
-                    print(f"DEBUG: Fuzzy match: '{word}' → '{sub_lower}' (score {score:.2f})")
-
-            for n in range(2, 4):
-                if len(remaining_words) >= n:
-                    combined = " ".join(remaining_words[-n:])
-                    score = difflib.SequenceMatcher(None, combined, sub_lower).ratio()
-                    if score > best_score and score > 0.55:
-                        best_score = score
-                        best_cat = cat
-                        best_match_text = combined
-                        print(f"DEBUG: Fuzzy combined: '{combined}' → '{sub_lower}' (score {score:.2f})")
-
-    if best_cat is None:
         await update.message.reply_text(
-            f"❌ Kategori **'{text}'** ga ketemu bro 😔\n\n"
-            f"Coba pakai kata kunci yang lebih jelas seperti:\n"
-            f"• makan / warteg / jajan\n"
-            f"• bensin / parkir / transport\n"
-            f"• gaji / bonus\n"
-            f"• pulsa / kuota\n"
-            f"• belanja / shopee\n"
-            f"• tagihan / listrik / pln\n\n"
-            f"Atau cek sheet **Categories** untuk daftar lengkap."
+            f"🔁 Transfer berhasil bro!\n\n"
+            f"Dari: {from_acc}\n"
+            f"Ke: {to_acc}\n"
+            f"Nominal: Rp {nominal:,}"
         )
         return
 
-    # Deskripsi
-    description = original_text
-    if best_match_text:
-        description = " ".join([w for w in remaining_words if w not in best_match_text.lower() and w not in account.lower()]).strip() or original_text
+    # ================= CEK ACCOUNT =================
+    account = None
+    for p in parts:
+        if account_exists(p.upper()):
+            account = p.upper()
+            break
 
-    # Lanjut proses transaksi
-    if best_cat["type"] == "Income":
-        tipe_display = "Pemasukan"
-    else:
-        current_balance = get_current_balance(account)
-        if current_balance < nominal:
+    if not account:
+        await update.message.reply_text("Nama akun ga ketemu di sheet Account.")
+        return
+
+    # ================= AUTO CATEGORY FULL SHEET =================
+    best_cat = None
+    best_score = 0.0
+
+    for cat in categories:
+        sub_lower = cat["sub"].lower()
+
+        if sub_lower in text_lower:
+            best_cat = cat
+            best_score = 1.0
+            break
+
+        for word in parts:
+            score = difflib.SequenceMatcher(None, word, sub_lower).ratio()
+            if score > best_score and score > 0.55:
+                best_score = score
+                best_cat = cat
+
+    # Fallback
+    if best_cat is None:
+        best_cat = next(
+            (c for c in categories if c["sub"].lower() in ["other expense", "lainnya"]),
+            None
+        )
+
+    if best_cat is None:
+        await update.message.reply_text("Kategori ga ketemu dan tidak ada fallback.")
+        return
+
+    # ================= CEK SALDO JIKA EXPENSE =================
+    if best_cat["type"] == "Expenses":
+        saldo_now = get_current_balance(account)
+        if saldo_now < nominal:
             await update.message.reply_text(
-                f"Saldo {account} kurang bro 😔\n"
-                f"Sekarang: Rp {current_balance:,}\n"
-                f"Butuh: Rp {nominal:,}"
+                f"Saldo {account} kurang bro 😔\nSekarang: Rp {saldo_now:,}"
             )
             return
-        tipe_display = "Pengeluaran"
 
     tanggal = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    nama = user_name
 
     transaksi_sheet.append_row([
-        tanggal, nama, account, best_cat["type"],
-        best_cat["parent"], best_cat["sub"], nominal, description
+        tanggal,
+        user_name,
+        account,
+        best_cat["type"],
+        best_cat["parent"],
+        best_cat["sub"],
+        nominal,
+        original_text
     ])
 
     new_balance = get_current_balance(account)
 
+    tipe_display = "Pemasukan" if best_cat["type"] == "Income" else "Pengeluaran"
+
     await update.message.reply_text(
-        f"Transaksi berhasil tercatat bro! ✅\n\n"
-        f"• Akun: {account}\n"
-        f"• Tipe: {tipe_display}\n"
-        f"• Nominal: Rp {nominal:,}\n"
-        f"• Kategori: {best_cat['sub']} ({best_cat['parent']})\n"
-        f"• Deskripsi: {description}\n"
-        f"• Waktu: {tanggal}\n\n"
-        f"Saldo {account} sekarang: Rp {new_balance:,}"
+        f"✅ Transaksi tercatat!\n\n"
+        f"Akun: {account}\n"
+        f"Tipe: {tipe_display}\n"
+        f"Nominal: Rp {nominal:,}\n"
+        f"Kategori: {best_cat['sub']}\n"
+        f"Saldo sekarang: Rp {new_balance:,}"
     )
 
 # ================= APP =================
