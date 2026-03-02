@@ -125,14 +125,26 @@ hapus_pending = defaultdict(dict)  # user_id → {'row': int, 'timestamp': float
 def parse_nominal(nominal_text):
     try:
         nominal_text = str(nominal_text).lower().replace(".", "").replace(",", "").strip()
+
+        # 🚫 Tolak jika ada tanda minus
+        if "-" in nominal_text:
+            raise ValueError("Nominal tidak boleh minus.")
+
         if "jt" in nominal_text:
-            return int(float(nominal_text.replace("jt", "")) * 1_000_000)
+            value = int(float(nominal_text.replace("jt", "")) * 1_000_000)
         elif "rb" in nominal_text or "k" in nominal_text:
-            return int(float(nominal_text.replace("rb", "").replace("k", "")) * 1_000)
+            value = int(float(nominal_text.replace("rb", "").replace("k", "")) * 1_000)
         else:
-            return int(nominal_text)
+            value = int(nominal_text)
+
+        # 🚫 Tolak kalau <= 0
+        if value <= 0:
+            raise ValueError("Nominal harus lebih dari 0.")
+
+        return value
+
     except (ValueError, TypeError):
-        raise ValueError(f"Nominal tidak valid: {nominal_text}")
+        raise ValueError(f"Nominal tidak valid atau minus: {nominal_text}")
 
 def account_exists(account_name):
     try:
