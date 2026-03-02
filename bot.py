@@ -655,6 +655,198 @@ async def reloaduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Kalau ga berubah, cek sheet 'USER' dan pastiin ID lu ada di kolom A + 'active' di kolom C."
     )
 
+async def daftar_kategori(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
+
+    try:
+        categories = load_categories()
+        if not categories:
+            await update.message.reply_text("Sheet Categories kosong atau error.")
+            return
+
+        from collections import defaultdict
+        
+        # Grouping: Type → Parent → List of Subs
+        grouped = defaultdict(lambda: defaultdict(list))
+        for cat in categories:
+            grouped[cat["type"]][cat["parent"]].append(cat["sub"])
+
+        message = "📋 Daftar Kategori yang Dikenali Bot:\n\n"
+        message += "Format: **Type** > **Parent** > Sub Kategori\n"
+        message += "─" * 40 + "\n"
+
+        for tipe in sorted(grouped):
+            message += f"\n**{tipe.upper()}**\n"
+            for parent in sorted(grouped[tipe]):
+                message += f"  • **{parent}**\n"
+                for sub in sorted(grouped[tipe][parent]):
+                    message += f"    - {sub}\n"
+
+        message += "\nGunakan salah satu sub-kategori di atas saat mencatat transaksi.\n"
+        message += "Contoh: BCA makan 25rb → match ke Expenses > Daily Expenses > Makan\n"
+        message += "Kalau gak ada yang cocok, tambah pake /tambahkategori (owner only)."
+
+        await update.message.reply_text(message)
+
+    except Exception as e:
+        await update.message.reply_text(f"Error menampilkan daftar: {str(e)}")
+
+async def tambah_kategori(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if user_id != OWNER_ID:
+        await update.message.reply_text("Command ini hanya untuk owner bot.")
+        return
+
+    if len(context.args) != 3:
+        await update.message.reply_text(
+            "Format:\n"
+            "/tambahkategori <Type> <Parent> <Sub Kategori>\n\n"
+            "Contoh:\n"
+            "/tambahkategori Expenses Daily Expenses Cuci Mobil\n"
+            "/tambahkategori Income Other Hadiah Ulang Tahun\n\n"
+            "Pastikan tanpa tanda kutip, pisah spasi."
+        )
+        return
+
+    try:
+        tipe, parent, sub = context.args[0], context.args[1], " ".join(context.args[2:])
+        
+        # Validasi sederhana
+        if tipe not in ["Income", "Expenses"]:
+            await update.message.reply_text("Type harus 'Income' atau 'Expenses' (huruf besar awal).")
+            return
+
+        category_sheet = spreadsheet.worksheet("Categories")
+        
+        # Cek apakah sudah ada (hindari duplikat)
+        existing = category_sheet.get_all_values()[1:]
+        for row in existing:
+            if len(row) >= 3 and row[0] == tipe and row[1] == parent and row[2] == sub:
+                await update.message.reply_text(f"Kategori '{sub}' sudah ada di {tipe} > {parent}.")
+                return
+
+        # Tambah baris baru
+        category_sheet.append_row([tipe, parent, sub])
+        
+        # Reload categories di memory (supaya langsung terdeteksi)
+        # (load_categories() akan dipanggil ulang saat handle_message berikutnya)
+        
+        await update.message.reply_text(
+            f"✅ Kategori baru berhasil ditambahkan!\n\n"
+            f"Type  : {tipe}\n"
+            f"Parent: {parent}\n"
+            f"Sub   : {sub}\n\n"
+            "Sekarang bot sudah bisa mengenali kata kunci ini.\n"
+            "Coba tes: ketik transaksi dengan kata '{sub.lower()}'"
+        )
+
+    except gspread.exceptions.WorksheetNotFound:
+        await update.message.reply_text("Sheet 'Categories' tidak ditemukan.")
+    except Exception as e:
+        await update.message.reply_text(f"Error menambah kategori: {str(e)}")
+
+async def edit_kategori(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if user_id != OWNER_ID:
+        await update.message.reply_text("Command ini hanya untuk owner bot.")
+        return
+
+    if len(context.args) < 4:
+        await update.message.reply_text(
+            "Format:\n"
+            "/editkategori <Old Sub Kategori> <New Type> <New Parent> <New Sub Kategori>\n\n"
+            "Contoh:\n"
+            "/editkategori Cuci Mobil Expenses Lifestyle Cuci Kendaraan\n\n"
+            "Ini akan cari Sub lama (case-insensitive), lalu ubah ke yang baru.\n"
+            "Pastikan tanpa tanda kutip, pisah spasi. Kalau Sub punya spasi, gabung dengan underscore dulu (nanti diganti spasi)."
+        )
+        return
+
+    try:
+        old_sub = " ".join(context.args[0:len(context.args)-3]).replace("_", " ")  # Support spasi di old_sub
+        new_tipe = context.args[-3]
+        new_parent = context.args[-2]
+        new_sub = " ".join(context.args[-1:]).replace("_", " ")  # Support spasi di new_sub
+        
+        if new_tipe not in ["Income", "Expenses"]:
+            await update.message.reply_text("New Type harus 'Income' atau 'Expenses'.")
+            return
+
+        category_sheet = spreadsheet.worksheet("Categories")
+        data = category_sheet.get_all_values()
+        
+        found_row = None
+        for idx, row in enumerate(data[1:], start=2):  # Mulai row 2 (data)
+            if len(row) >= 3 and row[2].lower() == old_sub.lower():
+                found_row = idx
+                break
+
+        if not found_row:
+            await update.message.reply_text(f"Kategori dengan Sub '{old_sub}' tidak ditemukan.")
+            return
+
+        # Update row
+        category_sheet.update_cell(found_row, 1, new_tipe)    # Kolom A: Type
+        category_sheet.update_cell(found_row, 2, new_parent)  # Kolom B: Parent
+        category_sheet.update_cell(found_row, 3, new_sub)     # Kolom C: Sub
+
+        await update.message.reply_text(
+            f"✅ Kategori berhasil diedit!\n\n"
+            f"Lama: Sub '{old_sub}'\n"
+            f"Baru: {new_tipe} > {new_parent} > {new_sub}"
+        )
+
+    except gspread.exceptions.WorksheetNotFound:
+        await update.message.reply_text("Sheet 'Categories' tidak ditemukan.")
+    except Exception as e:
+        await update.message.reply_text(f"Error edit kategori: {str(e)}")
+
+async def hapus_kategori(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if user_id != OWNER_ID:
+        await update.message.reply_text("Command ini hanya untuk owner bot.")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Format:\n"
+            "/hapuskategori <Sub Kategori>\n\n"
+            "Contoh: /hapuskategori Cuci Mobil\n"
+            "Ini akan hapus row yang Sub-nya match (case-insensitive).\n"
+            "Kalau Sub punya spasi, gabung dengan underscore (nanti diganti spasi)."
+        )
+        return
+
+    try:
+        sub_to_delete = " ".join(context.args).replace("_", " ")
+        
+        category_sheet = spreadsheet.worksheet("Categories")
+        data = category_sheet.get_all_values()
+        
+        found_row = None
+        for idx, row in enumerate(data[1:], start=2):
+            if len(row) >= 3 and row[2].lower() == sub_to_delete.lower():
+                found_row = idx
+                break
+
+        if not found_row:
+            await update.message.reply_text(f"Kategori dengan Sub '{sub_to_delete}' tidak ditemukan.")
+            return
+
+        # Hapus row
+        category_sheet.delete_rows(found_row)
+
+        await update.message.reply_text(f"✅ Kategori '{sub_to_delete}' berhasil dihapus dari sheet!")
+
+    except gspread.exceptions.WorksheetNotFound:
+        await update.message.reply_text("Sheet 'Categories' tidak ditemukan.")
+    except Exception as e:
+        await update.message.reply_text(f"Error hapus kategori: {str(e)}")
+
 # ================= HANDLE PESAN UTAMA =================
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -844,6 +1036,11 @@ app.add_handler(CommandHandler("riwayat", riwayat))
 app.add_handler(CommandHandler("history", riwayat))
 app.add_handler(CommandHandler("export", export))
 app.add_handler(CommandHandler("reloaduser", reloaduser))
+app.add_handler(CommandHandler("kategori", daftar_kategori))
+app.add_handler(CommandHandler("daftarkategori", daftar_kategori))  # alias
+app.add_handler(CommandHandler("tambahkategori", tambah_kategori))
+app.add_handler(CommandHandler("editkategori", edit_kategori))
+app.add_handler(CommandHandler("hapuskategori", hapus_kategori))
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
