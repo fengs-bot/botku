@@ -766,22 +766,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for cat in categories:
         sub_lower = cat["sub"].lower()
+        
+        # Exact match di deskripsi (lebih kuat)
         if sub_lower in text_lower:
             best_cat = cat
             best_score = 1.0
             break
+        
+        # Fuzzy match per kata
         for word in parts:
             score = difflib.SequenceMatcher(None, word, sub_lower).ratio()
-            if score > best_score and score > 0.6:  # naikkan threshold biar lebih akurat
+            if score > best_score and score >= 0.7:  # naikkan threshold biar lebih ketat
                 best_score = score
                 best_cat = cat
 
     if best_cat is None:
-        # Fallback ke "Lainnya" atau sejenis
-        best_cat = next((c for c in categories if "lain" in c["sub"].lower() or "other" in c["sub"].lower()), None)
-        if best_cat is None:
-            await update.message.reply_text("Tidak bisa menemukan kategori yang cocok.")
-            return
+        # Tidak ada match yang memadai → tolak langsung
+        await update.message.reply_text(
+            "Maaf bro, bot gak nemu kategori yang cocok dengan pesan lu.\n\n"
+            "Contoh yang dikenali:\n"
+            "- BCA makan 25rb\n"
+            "- gopay transport 10rb\n"
+            "- spbank jajan 5rb\n"
+            "- cuci mobil 15rb (pastikan ada kata kunci yang mirip di sheet Categories)\n\n"
+            "Coba tambahin kata kunci yang lebih jelas atau tambah kategori baru di sheet Categories ya!"
+        )
+        return
+
+    # Lanjut proses seperti biasa kalau ketemu
+    # (cek saldo, append ke sheet, balas sukses, dll)
 
     if best_cat["type"] == "Expenses":
         saldo_now = get_current_balance(account)
