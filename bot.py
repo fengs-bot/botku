@@ -440,20 +440,59 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
 
-    await update.message.reply_text(
-        "Menu Cepat Bot Keuangan Pro:\n\n"
-        "• Catat transaksi: BCA 50rb makan\n"
-        "• Transfer: transfer BCA 100rb ke GOPAY\n"
-        "• /saldo → Cek semua saldo\n"
-        "• /ringkasan → Ringkasan harian/mingguan/bulanan\n"
-        "• /riwayat BCA → 10 transaksi terakhir\n"
-        "• /export → Download semua data CSV\n"
-        "• /chart 2025-02 → Grafik pengeluaran\n"
-        "• /laporan → Total income & expense\n"
-        "• /reloaduser → Update daftar user (owner only)\n"
-        "• /help atau /menu → Tampilkan menu ini lagi\n\n"
-        "Semua fitur sekarang tanpa tombol, cukup ketik perintah atau konfirmasi teks (seperti YA untuk hapus)."
-    )
+    message = "📱 **Menu Lengkap Bot Catat Duit Pro**\n\n"
+
+    message += "🔹 **Cara Catat Transaksi Cepat** (tanpa command)\n"
+    message += "Cukup ketik:  akun nominal deskripsi\n"
+    message += "Contoh:\n"
+    message += "• BCA 50rb makan\n"
+    message += "• gopay 15rb transport grab\n"
+    message += "• spbank 100rb gaji\n\n"
+
+    message += "🔹 **Transfer Antar Akun**\n"
+    message += "transfer <dari> <nominal> ke <ke>\n"
+    message += "Contoh: transfer BCA 200rb ke GOPAY\n\n"
+
+    message += "🔹 **Perintah Utama**\n"
+    message += "• /start          → Aktifkan & sambutan\n"
+    message += "• /saldo          → Cek saldo semua akun + total\n"
+    message += "• /riwayat <akun> → 10 transaksi terakhir akun tertentu\n"
+    message += "  Contoh: /riwayat BCA  atau  /history GOPAY\n"
+    message += "• /ringkasan      → Ringkasan hari ini, minggu ini, bulan ini\n"
+    message += "• /laporan        → Total income, expense, net (tahun ini)\n"
+    message += "  Tambah tahun: /laporan 2026  atau /laporan all\n"
+    message += "• /chart [periode] [tipe] [filter]\n"
+    message += "  Contoh:\n"
+    message += "  • /chart 2026-03           → Bar pengeluaran Maret 2026\n"
+    message += "  • /chart 2026-03 pie       → Pie chart Maret\n"
+    message += "  • /chart 2026 line         → Trend bulanan 2026\n"
+    message += "  • /chart 2026 expenses     → Pengeluaran 2026\n"
+    message += "• /export         → Download semua transaksi tahun ini (.csv)\n"
+    message += "• /hapus <nomor>  → Hapus transaksi (konfirmasi YA)\n"
+    message += "  • /hapus terakhir → Hapus transaksi paling baru\n\n"
+
+    message += "🔹 **Manajemen Kategori** (semua user bisa lihat)\n"
+    message += "• /kategori atau /daftarkategori\n"
+    message += "  → Lihat semua kategori yang dikenali bot (grouped)\n\n"
+
+    message += "🔹 **Command Owner Only** (hanya Fengky)\n"
+    message += "• /reloaduser     → Refresh daftar user dari sheet USER\n"
+    message += "• /tambahkategori <Type> <Parent> <Sub>\n"
+    message += "  Contoh: /tambahkategori Expenses Daily Expenses Cuci Mobil\n"
+    message += "• /editkategori <Old Sub> <New Type> <New Parent> <New Sub>\n"
+    message += "  Contoh: /editkategori Cuci Mobil Expenses Lifestyle Cuci Kendaraan\n"
+    message += "• /hapuskategori <Sub Kategori>\n"
+    message += "  Contoh: /hapuskategori Cuci Mobil\n\n"
+
+    message += "Tips:\n"
+    message += "• Nominal bisa: 50rb, 1jt, 750k, 1000000\n"
+    message += "• Kalau kategori tidak dikenali → bot akan tolak & kasih saran\n"
+    message += "• Tambah/edit/hapus kategori langsung dari Telegram (owner)\n"
+    message += "• Semua transaksi otomatis masuk sheet tahun berjalan\n\n"
+
+    message += "Kalau ada kendala atau ide fitur baru, langsung bilang aja bro! 🔥"
+
+    await update.message.reply_text(message, parse_mode="Markdown")
 
 async def laporan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
