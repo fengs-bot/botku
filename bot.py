@@ -12,7 +12,6 @@ import time
 print("=== BOT MULAI JALAN DI RAILWAY ===")
 print("Python version:", sys.version)
 print("Current working dir:", os.getcwd())
-print("Env vars available:", list(os.environ.keys())[:10])
 print("TOKEN ada?", "TOKEN" in os.environ)
 print("GOOGLE_CREDS ada?", "GOOGLE_CREDS" in os.environ)
 print("WEBHOOK_URL ada?", "WEBHOOK_URL" in os.environ)
@@ -29,7 +28,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # ================= STATE KONFIRMASI HAPUS =================
-hapus_pending = defaultdict(dict)   # user_id → {'row': int, 'timestamp': float}
+hapus_pending = defaultdict(dict)   # user_id → {'row': int, 'timestamp': float, 'chat_id': int}
 
 def format_rupiah(angka):
     try:
@@ -65,9 +64,9 @@ def load_allowed_users_sync():
                 if status == "active":
                     allowed.add(user_id)
         ALLOWED_USER_IDS = allowed
-        print(f"DEBUG: Loaded {len(allowed)} user allowed dari sheet USER")
+        print(f"Loaded {len(allowed)} allowed users")
     except gspread.exceptions.WorksheetNotFound:
-        print("WARNING: Sheet 'USER' tidak ditemukan. Bot jadi public sementara.")
+        print("WARNING: Sheet 'USER' tidak ditemukan → bot jadi public")
         ALLOWED_USER_IDS = set()
     except Exception as e:
         print(f"ERROR load allowed users: {e}")
@@ -77,10 +76,8 @@ async def is_allowed_user(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = update.effective_user.id
     if user_id not in ALLOWED_USER_IDS:
         await update.message.reply_text("Maaf bro, bot ini privat. Hanya user terdaftar yang bisa pakai.")
-        print(f"DEBUG: User ditolak: ID {user_id}")
         return False
     return True
-
 
 # ================= GOOGLE SHEETS =================
 scope = [
@@ -99,7 +96,6 @@ try:
     client = gspread.authorize(creds)
     spreadsheet = client.open("BOT_KEUANGAN")
 
-    transaksi_sheet = spreadsheet.worksheet("Transaksi")
     category_sheet = spreadsheet.worksheet("Categories")
     account_sheet = spreadsheet.worksheet("Account")
 except Exception as e:
@@ -107,10 +103,20 @@ except Exception as e:
     print(traceback.format_exc())
     raise
 
-# ================= STATE UNTUK KONFIRMASI HAPUS =================
-hapus_pending = defaultdict(dict)  # user_id → {'row': int, 'timestamp': float, 'chat_id': int}
+# ================= HELPER FUNCTIONS =================
 
-# ================= FUNCTIONS =================
+def get_transaksi_sheet_by_year(year: str):
+    sheet_name = f"Transaksi_{year}"
+    try:
+        return spreadsheet.worksheet(sheet_name)
+    except gspread.exceptions.WorksheetNotFound:
+        ws = spreadsheet.add_worksheet(title=sheet_name, rows="1000", cols="8")
+        ws.append_row(["Tanggal","User","Account","Type","Parent","Sub","Nominal","Deskripsi"])
+        return ws
+
+def get_current_year_sheet():
+    year = datetime.now().strftime("%Y")
+    return get_transaksi_sheet_by_year(year)
 
 def parse_sheet_amount(value):
     try:
@@ -123,7 +129,6 @@ def parse_nominal(nominal_text):
     try:
         nominal_text = str(nominal_text).lower().replace(".", "").replace(",", "").strip()
 
-        # 🚫 Tolak jika ada tanda minus
         if "-" in nominal_text:
             raise ValueError("Nominal tidak boleh minus.")
 
@@ -134,39 +139,30 @@ def parse_nominal(nominal_text):
         else:
             value = int(nominal_text)
 
-        # 🚫 Tolak kalau <= 0
         if value <= 0:
             raise ValueError("Nominal harus lebih dari 0.")
 
         return value
-
-    except (ValueError, TypeError):
-        raise ValueError(f"Nominal tidak valid atau minus: {nominal_text}")
+    except Exception as e:
+        raise ValueError(f"Nominal tidak valid: {nominal_text} → {str(e)}")
 
 def account_exists(account_name):
     try:
         data = account_sheet.get_all_values()[1:]
-        accounts = [row[0].strip().upper() for row in data if row and row[0].strip()]
+        accounts = {row[0].strip().upper() for row in data if row and row[0].strip()}
         return account_name.strip().upper() in accounts
-    except Exception:
+    except:
         return False
 
 def get_current_balance(account_name):
     try:
-        account_data = account_sheet.get_all_values()[1:]
-
-        for row in account_data:
+        data = account_sheet.get_all_values()[1:]
+        for row in data:
             if row and row[0].strip().upper() == account_name.strip().upper():
-
-                # Kolom E = index 4
                 if len(row) > 4:
-                    try:
-                        return int(str(row[4]).replace(",", "").replace(".", ""))
-                    except:
-                        return 0
-
+                    clean = str(row[4]).replace(",", "").replace(".", "").strip()
+                    return int(clean) if clean.isdigit() else 0
         return 0
-
     except Exception as e:
         print(f"Error get balance {account_name}: {e}")
         return 0
@@ -178,14 +174,8 @@ def load_categories():
     except:
         return []
 
-def find_category(input_category, categories):
-    input_lower = input_category.lower().strip()
-    for cat in categories:
-        if cat["sub"].lower().strip() == input_lower:
-            return cat
-    return None
-
 # ================= COMMANDS =================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
@@ -195,47 +185,42 @@ async def hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
     
-    user_id = update.effective_user.id
-    if len(context.args) == 0:
+    if not context.args:
         await update.message.reply_text(
-            "Format: /hapus <nomor baris> atau /hapus terakhir\n"
-            "Contoh:\n"
-            "/hapus 5 → hapus transaksi baris ke-5\n"
-            "/hapus terakhir → hapus transaksi paling baru"
+            "Format:\n"
+            "/hapus <nomor baris>\n"
+            "/hapus terakhir\n\n"
+            "Contoh: /hapus 5  atau  /hapus terakhir"
         )
         return
 
     arg = context.args[0].lower()
-    
+    user_id = update.effective_user.id
+
     try:
-        all_data = transaksi_sheet.get_all_values()
-        if len(all_data) <= 1:  # hanya header
-            await update.message.reply_text("Belum ada transaksi yang bisa dihapus bro.")
+        sheet = get_current_year_sheet()
+        all_data = sheet.get_all_values()
+        if len(all_data) <= 1:
+            await update.message.reply_text("Belum ada transaksi yang bisa dihapus.")
             return
 
         if arg == "terakhir":
-            row_to_delete = len(all_data)  # baris terakhir
+            row_to_delete = len(all_data)
         else:
-            try:
-                row_to_delete = int(arg)
-                if row_to_delete < 2:  # 1 = header
-                    await update.message.reply_text("Baris minimal 2 (abaikan header ya).")
-                    return
-                if row_to_delete > len(all_data):
-                    await update.message.reply_text(f"Baris {row_to_delete} ga ada, maksimal {len(all_data)}")
-                    return
-            except ValueError:
-                await update.message.reply_text("Masukin nomor baris yang bener dong (angka).")
+            row_to_delete = int(arg)
+            if row_to_delete < 2:
+                await update.message.reply_text("Baris minimal 2 (header dihitung baris 1).")
+                return
+            if row_to_delete > len(all_data):
+                await update.message.reply_text(f"Baris {row_to_delete} tidak ada.")
                 return
 
-        # Ambil detail transaksi
         transaksi = all_data[row_to_delete - 1]
         tanggal = transaksi[0]
         akun = transaksi[2]
         tipe = transaksi[3]
-        nominal_formatted = format_rupiah(transaksi[6])
+        nominal = format_rupiah(transaksi[6])
 
-        # Simpan state konfirmasi (global dict yang sudah ada)
         hapus_pending[user_id] = {
             'row': row_to_delete,
             'timestamp': time.time(),
@@ -243,47 +228,20 @@ async def hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
 
         await update.message.reply_text(
-            f"Yakin mau hapus transaksi ini?\n\n"
+            f"Yakin hapus transaksi ini?\n\n"
             f"Baris: {row_to_delete}\n"
             f"Tanggal: {tanggal}\n"
             f"Akun: {akun}\n"
             f"Tipe: {tipe}\n"
-            f"Nominal: Rp {nominal_formatted}\n\n"
-            "Ketik **YA** (atau ya) dalam 30 detik untuk hapus.\n"
-            "Ketik apa saja (misal 'batal') untuk batal."
+            f"Nominal: Rp {nominal}\n\n"
+            "Balas **YA** atau **ya** dalam 30 detik untuk konfirmasi.\n"
+            "Balas apa saja selain YA untuk batal."
         )
 
+    except ValueError:
+        await update.message.reply_text("Masukkan nomor baris yang valid (angka).")
     except Exception as e:
-        await update.message.reply_text(f"Error hapus: {str(e)}\nCoba lagi atau lapor owner.")
-
-async def konfirmasi_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """
-    Return True kalau pesan sudah diproses sebagai konfirmasi hapus (stop propagation).
-    Return False kalau bukan konfirmasi → lanjut ke handler berikutnya (handle_message).
-    """
-    user_id = update.effective_user.id
-    state = hapus_pending.get(user_id)
-    if not state:
-        return False  # BUKAN konfirmasi → lanjut ke handle_message
-
-    # Ada state → proses konfirmasi
-    if time.time() - state['timestamp'] > 30:
-        hapus_pending.pop(user_id, None)
-        await update.message.reply_text("Konfirmasi hapus kadaluarsa. Ketik ulang /hapus kalau mau.")
-        return True
-
-    text = update.message.text.strip().upper()
-    if text in ["YA", "Y", "YES"]:
-        try:
-            transaksi_sheet.delete_rows(state['row'])
-            await update.message.reply_text(f"✅ Transaksi baris {state['row']} berhasil dihapus bro!")
-        except Exception as e:
-            await update.message.reply_text(f"Gagal hapus: {str(e)}")
-    else:
-        await update.message.reply_text("Oke dibatalin, transaksi aman bro 😎")
-
-    hapus_pending.pop(user_id, None)
-    return True  # sudah diproses → stop, ga lanjut ke handle_message
+        await update.message.reply_text(f"Error: {str(e)}")
 
 async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
@@ -352,7 +310,21 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
             data_filter = args[2]
 
     try:
-        data = transaksi_sheet.get_all_values()[1:]  # skip header
+        if period == "all":
+            await update.message.reply_text(
+                "Chart all tahun tidak diizinkan. Gunakan /chart 2026 atau 2026-02"
+            )
+            return
+
+        if "-" in period:
+            year = period[:4]
+        elif len(period) == 4:
+            year = period
+        else:
+            year = datetime.now().strftime("%Y")
+
+        year_sheet = get_transaksi_sheet_by_year(year)
+        data = year_sheet.get_all_values()[1:]
         if not data:
             await update.message.reply_text("Belum ada data transaksi bro")
             return
@@ -486,137 +458,62 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def laporan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
+
     try:
-        data = transaksi_sheet.get_all_values()[1:]
+        summary_sheet = spreadsheet.worksheet("Summary")
+        data = summary_sheet.get_all_values()[1:]
+
         if not data:
-            await update.message.reply_text("Belum ada transaksi bro")
+            await update.message.reply_text("Sheet Summary kosong bro.")
             return
 
+        args = context.args
         total_income = 0
         total_expense = 0
-        top_expense_cat = {}
-        for row in data:
-            if len(row) < 7:
-                continue
-            tipe = row[3]
-            amount = parse_sheet_amount(row[6])
-            category = row[5]
 
-            if tipe == "Income":
-                total_income += amount
+        if args:
+            year_input = args[0]
+
+            if year_input.lower() == "all":
+                for row in data:
+                    total_income += int(row[1])
+                    total_expense += int(row[2])
             else:
-                total_expense += amount
-                top_expense_cat[category] = top_expense_cat.get(category, 0) + amount
+                for row in data:
+                    if row[0] == year_input:
+                        total_income = int(row[1])
+                        total_expense = int(row[2])
+                        break
+        else:
+            current_year = datetime.now().strftime("%Y")
+            for row in data:
+                if row[0] == current_year:
+                    total_income = int(row[1])
+                    total_expense = int(row[2])
+                    break
 
         net = total_income - total_expense
-        top_cat = sorted(top_expense_cat.items(), key=lambda x: x[1], reverse=True)[:3]
 
-        message = f"Laporan Keuangan Sekarang:\n\n"
-        message += f"Total Pemasukan: Rp {total_income:,}\n"
-        message += f"Total Pengeluaran: Rp {total_expense:,}\n"
-        message += f"Net Saldo: Rp {net:,}\n\n"
-        message += "Top 3 Pengeluaran:\n"
-        for cat, amt in top_cat:
-            message += f"• {cat}: Rp {amt:,}\n"
+        message = (
+            f"📊 LAPORAN KEUANGAN\n\n"
+            f"Income : Rp {total_income:,}\n"
+            f"Expense : Rp {total_expense:,}\n"
+            f"Net : Rp {net:,}"
+        )
 
         await update.message.reply_text(message)
+
     except Exception as e:
         await update.message.reply_text(f"Error laporan: {str(e)}")
-
-# Callback untuk inline keyboard
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    print(f"DEBUG CALLBACK DITERIMA: data='{query.data}' dari user {update.effective_user.id}")  # <-- TAMBAH BARIS INI
-
-    await query.answer()  # ini penting biar tombol ga stuck "loading..." lama 
-
-    data = query.data
-    print(f"DEBUG: Tombol diklik: {data} oleh user {update.effective_user.id}")
-
-    if data == 'saldo':
-        await saldo(update, context)
-        await query.edit_message_text("Saldo sedang diambil...")  # optional: update pesan menu
-
-    elif data == 'ringkasan':
-        await ringkasan(update, context)
-
-    elif data == 'chart':
-        await query.edit_message_text(
-            "Kirim perintah chart:\n"
-            "/chart 2025-02 → grafik bulan\n"
-            "/chart 2025-02 pie → pie chart\n"
-            "/chart 2025 line → trend tahunan\n"
-            "/chart all expenses → semua pengeluaran"
-        )
-
-    elif data == 'riwayat':
-        await query.edit_message_text(
-            "Kirim perintah riwayat:\n"
-            "/riwayat BCA → 10 transaksi terakhir BCA\n"
-            "/riwayat GOPAY → riwayat GOPAY"
-        )
-
-    elif data == 'export':
-        await export(update, context)
-
-    elif data == 'reloaduser':
-        await reloaduser(update, context)
-
-    elif data == 'laporan':
-        await laporan(update, context)
-
-    elif data == 'transaksi':
-        await query.edit_message_text(
-            "Catat transaksi langsung:\n"
-            "Contoh:\n"
-            "• BCA 50rb makan\n"
-            "• gopay grab 30rb\n"
-            "• transfer BCA 200rb ke dana"
-        )
-
-    elif data == 'hapus':
-        await query.edit_message_text(
-            "Hapus transaksi:\n"
-            "/hapus 10 → hapus baris ke-10\n"
-            "/hapus terakhir → hapus transaksi terbaru"
-        )
-
-    elif query.data.startswith('confirm_hapus_'):
-        # Ambil nomor baris dari callback_data, contoh: confirm_hapus_9 → 9
-        try:
-            row_str = query.data.split('_')[-1]   # ambil bagian terakhir setelah underscore
-            row_to_delete = int(row_str)
-            
-            # Hapus baris di Google Sheet (baris 1 = header, jadi baris data mulai 2)
-            transaksi_sheet.delete_rows(row_to_delete)
-            
-            # Edit pesan konfirmasi jadi sudah dihapus
-            await query.edit_message_text(
-                f"✅ Transaksi baris {row_to_delete} berhasil dihapus bro!\n"
-                "Saldo & data sudah update otomatis."
-            )
-            
-            # Optional: kirim notif ringkas atau refresh saldo kalau mau
-            # await query.message.reply_text("Cek /saldo lagi ya biar yakin!")
-            
-        except ValueError:
-            await query.edit_message_text("Error: Nomor baris ga valid bro 😅")
-        except Exception as e:
-            await query.edit_message_text(f"Gagal hapus: {str(e)}\nCoba lagi atau lapor owner.")
-
-    elif query.data == 'batal_hapus':
-        await query.edit_message_text("Oke dibatalin, transaksi aman bro 😎")
-
-    else:
-        await query.edit_message_text(f"Tombol '{query.data}' ga dikenal. Coba /help lagi ya.")
-    
 
 async def ringkasan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
 
     try:
-        data = transaksi_sheet.get_all_values()[1:]
+        year = datetime.now().strftime("%Y")
+        year_sheet = get_transaksi_sheet_by_year(year)
+        data = year_sheet.get_all_values()[1:]
         if not data:
             await update.message.reply_text("Belum ada transaksi bro")
             return
@@ -758,20 +655,18 @@ async def reloaduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Kalau ga berubah, cek sheet 'USER' dan pastiin ID lu ada di kolom A + 'active' di kolom C."
     )
 
-# ================= HANDLE MESSAGE FINAL PRO VERSION =================
+# ================= HANDLE PESAN UTAMA =================
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
 
     user_id = update.effective_user.id
     text = update.message.text.strip()
-    original_text = text
     text_lower = text.lower()
-    user_name = update.message.from_user.first_name
+    user_name = update.effective_user.first_name or "User"
 
-    print(f"DEBUG: Pesan masuk: '{original_text}'")
-
-    # ================= CEK KONFIRMASI HAPUS =================
+    # Cek konfirmasi hapus dulu
     state = hapus_pending.get(user_id)
     if state:
         if time.time() - state['timestamp'] > 30:
@@ -780,23 +675,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if text_lower in ["ya", "y", "yes"]:
-            transaksi_sheet.delete_rows(state['row'])
-            await update.message.reply_text("✅ Transaksi berhasil dihapus.")
+            try:
+                sheet = get_current_year_sheet()
+                sheet.delete_rows(state['row'])
+                await update.message.reply_text(f"✅ Baris {state['row']} berhasil dihapus!")
+            except Exception as e:
+                await update.message.reply_text(f"Gagal hapus: {str(e)}")
         else:
-            await update.message.reply_text("Oke dibatalin 😎")
+            await update.message.reply_text("Dibatalkan bro 😎")
 
         hapus_pending.pop(user_id, None)
         return
 
-    # ================= LOAD CATEGORY =================
-    categories = load_categories()
-    if not categories:
-        await update.message.reply_text("Sheet Categories kosong atau error.")
-        return
-
+    # Proses transaksi / transfer
     parts = text_lower.split()
-
-    # ================= PARSE NOMINAL =================
     nominal = None
     for p in parts:
         try:
@@ -806,56 +698,54 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
 
     if nominal is None:
-        await update.message.reply_text("Nominal ga kebaca bro. Contoh: 50rb, 1jt.")
+        await update.message.reply_text("Nominal tidak terbaca. Contoh: 50rb, 1jt, 75000")
         return
 
-    # ================= CEK TRANSFER =================
+    # TRANSFER
     if text_lower.startswith("transfer"):
-        # Format: transfer BCA 100rb ke GOPAY
         try:
             from_acc = parts[1].upper()
-            to_index = parts.index("ke")
-            to_acc = parts[to_index + 1].upper()
-        except:
-            await update.message.reply_text("Format transfer salah.\nContoh: transfer BCA 100rb ke GOPAY")
-            return
+            ke_idx = parts.index("ke")
+            to_acc = parts[ke_idx + 1].upper()
 
-        if not account_exists(from_acc) or not account_exists(to_acc):
-            await update.message.reply_text("Akun sumber atau tujuan ga ketemu.")
-            return
+            if not account_exists(from_acc) or not account_exists(to_acc):
+                await update.message.reply_text("Akun sumber atau tujuan tidak ditemukan.")
+                return
 
-        saldo_now = get_current_balance(from_acc)
-        if saldo_now < nominal:
+            saldo_now = get_current_balance(from_acc)
+            if saldo_now < nominal:
+                await update.message.reply_text(f"Saldo {from_acc} kurang (saat ini: Rp {saldo_now:,})")
+                return
+
+            tanggal = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            sheet = get_current_year_sheet()
+
+            # Debit
+            sheet.append_row([
+                tanggal, user_name, from_acc,
+                "Expenses", "Transfer", "Transfer Out",
+                nominal, f"Transfer ke {to_acc}"
+            ])
+
+            # Kredit
+            sheet.append_row([
+                tanggal, user_name, to_acc,
+                "Income", "Transfer", "Transfer In",
+                nominal, f"Transfer dari {from_acc}"
+            ])
+
             await update.message.reply_text(
-                f"Saldo {from_acc} kurang bro.\nSekarang: Rp {saldo_now:,}"
+                f"✅ Transfer berhasil!\n"
+                f"Dari: {from_acc} → Ke: {to_acc}\n"
+                f"Nominal: Rp {nominal:,}"
             )
             return
 
-        tanggal = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        except Exception as e:
+            await update.message.reply_text(f"Format transfer salah atau error: {str(e)}")
+            return
 
-        # Debit dari sumber
-        transaksi_sheet.append_row([
-            tanggal, user_name, from_acc,
-            "Expenses", "Transfer", "Transfer Out",
-            nominal, f"Transfer ke {to_acc}"
-        ])
-
-        # Kredit ke tujuan
-        transaksi_sheet.append_row([
-            tanggal, user_name, to_acc,
-            "Income", "Transfer", "Transfer In",
-            nominal, f"Transfer dari {from_acc}"
-        ])
-
-        await update.message.reply_text(
-            f"🔁 Transfer berhasil bro!\n\n"
-            f"Dari: {from_acc}\n"
-            f"Ke: {to_acc}\n"
-            f"Nominal: Rp {nominal:,}"
-        )
-        return
-
-    # ================= CEK ACCOUNT =================
+    # TRANSAKSI BIASA
     account = None
     for p in parts:
         if account_exists(p.upper()):
@@ -863,50 +753,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             break
 
     if not account:
-        await update.message.reply_text("Nama akun ga ketemu di sheet Account.")
+        await update.message.reply_text("Akun tidak ditemukan di sheet Account.")
         return
 
-    # ================= AUTO CATEGORY FULL SHEET =================
+    categories = load_categories()
+    if not categories:
+        await update.message.reply_text("Sheet Categories kosong.")
+        return
+
     best_cat = None
     best_score = 0.0
 
     for cat in categories:
         sub_lower = cat["sub"].lower()
-
         if sub_lower in text_lower:
             best_cat = cat
             best_score = 1.0
             break
-
         for word in parts:
             score = difflib.SequenceMatcher(None, word, sub_lower).ratio()
-            if score > best_score and score > 0.55:
+            if score > best_score and score > 0.6:  # naikkan threshold biar lebih akurat
                 best_score = score
                 best_cat = cat
 
-    # Fallback
     if best_cat is None:
-        best_cat = next(
-            (c for c in categories if c["sub"].lower() in ["other expense", "lainnya"]),
-            None
-        )
+        # Fallback ke "Lainnya" atau sejenis
+        best_cat = next((c for c in categories if "lain" in c["sub"].lower() or "other" in c["sub"].lower()), None)
+        if best_cat is None:
+            await update.message.reply_text("Tidak bisa menemukan kategori yang cocok.")
+            return
 
-    if best_cat is None:
-        await update.message.reply_text("Kategori ga ketemu dan tidak ada fallback.")
-        return
-
-    # ================= CEK SALDO JIKA EXPENSE =================
     if best_cat["type"] == "Expenses":
         saldo_now = get_current_balance(account)
         if saldo_now < nominal:
-            await update.message.reply_text(
-                f"Saldo {account} kurang bro 😔\nSekarang: Rp {saldo_now:,}"
-            )
+            await update.message.reply_text(f"Saldo {account} kurang (saat ini: Rp {saldo_now:,})")
             return
 
     tanggal = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    sheet = get_current_year_sheet()
 
-    transaksi_sheet.append_row([
+    sheet.append_row([
         tanggal,
         user_name,
         account,
@@ -914,23 +800,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         best_cat["parent"],
         best_cat["sub"],
         nominal,
-        original_text
+        text
     ])
 
     new_balance = get_current_balance(account)
-
     tipe_display = "Pemasukan" if best_cat["type"] == "Income" else "Pengeluaran"
 
     await update.message.reply_text(
         f"✅ Transaksi tercatat!\n\n"
-        f"Akun: {account}\n"
-        f"Tipe: {tipe_display}\n"
-        f"Nominal: Rp {nominal:,}\n"
-        f"Kategori: {best_cat['sub']}\n"
+        f"Akun     : {account}\n"
+        f"Tipe     : {tipe_display}\n"
+        f"Nominal  : Rp {nominal:,}\n"
+        f"Kategori : {best_cat['sub']}\n"
         f"Saldo sekarang: Rp {new_balance:,}"
     )
 
-# ================= APP =================
+# ================= APP SETUP =================
+
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
@@ -946,17 +832,15 @@ app.add_handler(CommandHandler("history", riwayat))
 app.add_handler(CommandHandler("export", export))
 app.add_handler(CommandHandler("reloaduser", reloaduser))
 
-# Hanya SATU MessageHandler untuk semua pesan teks
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# ================= WEBHOOK =================
 if __name__ == "__main__":
     load_allowed_users_sync()
 
     base_url = WEBHOOK_URL.rstrip('/')
     webhook_url = f"{base_url}/{TOKEN}"
 
-    print("Setting webhook:", webhook_url)
+    print("Setting webhook →", webhook_url)
 
     app.run_webhook(
         listen="0.0.0.0",
