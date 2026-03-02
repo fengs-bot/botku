@@ -949,34 +949,34 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 # ================= WEBHOOK =================
 async def main():
-    load_allowed_users_sync()
+    try:
+        load_allowed_users_sync()
 
-    base_url = WEBHOOK_URL.rstrip('/')
-    webhook_url = f"{base_url}/{TOKEN}"
+        base_url = WEBHOOK_URL.rstrip('/')
+        webhook_url = f"{base_url}/{TOKEN}"
 
-    await app.initialize()
-    await app.start()
+        await app.initialize()
+        await app.start()
 
-    await app.bot.set_webhook(
-        url=webhook_url,
-        drop_pending_updates=True
-    )
+        await app.bot.set_webhook(
+            url=webhook_url,
+            drop_pending_updates=True
+        )
 
-    await app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TOKEN,
-        webhook_url=webhook_url,
-    )
+        print("Webhook berhasil diset!")
 
-        print("BOT WEBHOOK JALAN! 🚀 Test transaksi sekarang.")
-
-        await asyncio.Event().wait()
+        await app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=TOKEN,
+            webhook_url=webhook_url,
+        )
 
     except Exception as e:
         print("CRITICAL ERROR:")
         print(traceback.format_exc())
         raise
+
 
 if __name__ == "__main__":
     asyncio.run(main())
