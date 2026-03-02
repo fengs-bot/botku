@@ -150,10 +150,10 @@ def get_current_balance(account_name):
         for row in account_data:
             if row and row[0].strip().upper() == account_name.strip().upper():
 
-                # Kolom C = Saldo Akhir (hasil rumus)
-                if len(row) > 2:
+                # Kolom E = index 4
+                if len(row) > 4:
                     try:
-                        return int(str(row[2]).replace(",", "").replace(".", ""))
+                        return int(str(row[4]).replace(",", "").replace(".", ""))
                     except:
                         return 0
 
