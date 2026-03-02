@@ -280,41 +280,35 @@ async def konfirmasi_hapus(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
+
     try:
-        transaksi = transaksi_sheet.get_all_values()[1:]
         account_data = account_sheet.get_all_values()[1:]
 
-        saldo_dict = {}
+        message = "💰 SALDO PER AKUN\n\n"
+        total_all = 0
+
+        import re
+
         for row in account_data:
-            if row and row[0].strip():
-                try:
-                    saldo_dict[row[0].strip()] = int(row[1]) if row[1].strip().isdigit() else 0
-                except:
-                    saldo_dict[row[0].strip()] = 0
-
-        for row in transaksi:
-            if len(row) < 7:
+            if not row or not row[0].strip():
                 continue
-            account = row[2].strip()
-            tipe = row[3]
-            try:
-                amount = int(row[6])
-            except:
-                continue
-            if account in saldo_dict:
-                if tipe == "Income":
-                    saldo_dict[account] += amount
-                else:
-                    saldo_dict[account] -= amount
 
-        total_all = sum(saldo_dict.values())
+            account_name = row[0].strip()
 
-        message = "Saldo per akun:\n"
-        for acc, total in saldo_dict.items():
-            message += f"{acc} : Rp {total:,}\n"
+            # Kolom E = index 4 (Saldo Akhir)
+            if len(row) > 4:
+                clean_value = re.sub(r"[^\d]", "", str(row[4]))
+                balance = int(clean_value) if clean_value else 0
+            else:
+                balance = 0
+
+            total_all += balance
+            message += f"{account_name} : Rp {balance:,}\n"
+
         message += f"\nTOTAL : Rp {total_all:,}"
 
         await update.message.reply_text(message)
+
     except Exception as e:
         await update.message.reply_text(f"Error saat ambil saldo: {str(e)}")
 
