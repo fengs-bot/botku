@@ -9,6 +9,10 @@ import csv
 from collections import defaultdict
 import time
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+import pytz
+
 print("=== BOT MULAI JALAN DI RAILWAY ===")
 print("Python version:", sys.version)
 print("Current working dir:", os.getcwd())
@@ -1070,6 +1074,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Saldo sekarang: Rp {new_balance:,}"
     )
 
+async def recurring(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != OWNER_ID:
+        await update.message.reply_text("Command ini hanya untuk owner.")
+        return
+
+    await update.message.reply_text(
+        "Manajemen Recurring (masih manual via sheet 'Recurring'):\n\n"
+        "1. Buka Google Sheet → sheet 'Recurring'\n"
+        "2. Tambah/edit baris baru dengan format:\n"
+        "   ID | Akun | Nominal | Tipe | Parent | Sub | Deskripsi | Frekuensi | Hari/Tanggal | Aktif\n"
+        "Contoh:\n"
+        "   5 | BCA | 150000 | Expenses | Fixed Expenses | Internet | IndiHome | monthly | 10 | Yes\n\n"
+        "Bot akan otomatis proses setiap hari jam 00:05 WIB.\n"
+        "Untuk sekarang belum ada command tambah/hapus via chat (bisa ditambah nanti kalau perlu)."
+    )
+
 # ================= APP SETUP =================
 
 app = ApplicationBuilder().token(TOKEN).build()
@@ -1091,8 +1112,91 @@ app.add_handler(CommandHandler("daftarkategori", daftar_kategori))  # alias
 app.add_handler(CommandHandler("tambahkategori", tambah_kategori))
 app.add_handler(CommandHandler("editkategori", edit_kategori))
 app.add_handler(CommandHandler("hapuskategori", hapus_kategori))
+app.add_handler(CommandHandler("recurring", recurring))
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+# ================= RECURRING TRANSAKSI =================
+
+async def process_recurring():
+    try:
+        recurring_sheet = spreadsheet.worksheet("Recurring")
+        data = recurring_sheet.get_all_values()[1:]  # skip header
+        
+        today = datetime.now(pytz.timezone('Asia/Jakarta'))
+        today_day = today.day
+        today_weekday = today.strftime("%A").lower()  # monday, tuesday, dll
+        is_last_day = today_day == today.replace(day=28).day + (today - today.replace(day=28)).days  # approx akhir bulan
+
+        categories = load_categories()
+        year_sheet = get_current_year_sheet()
+        user_name = "SYSTEM"  # atau "Recurring Auto"
+
+        for row in data:
+            if len(row) < 9 or row[9].strip().lower() != "yes":
+                continue  # skip kalau tidak aktif
+
+            akun = row[1].upper()
+            nominal_str = row[2]
+            tipe = row[3]
+            parent = row[4]
+            sub = row[5]
+            deskripsi = row[6]
+            frekuensi = row[7].lower()
+            jadwal = row[8].lower()
+
+            try:
+                nominal = parse_nominal(nominal_str)
+            except:
+                continue
+
+            # Cek apakah hari ini jadwalnya
+            should_process = False
+
+            if frekuensi == "daily":
+                should_process = True
+            elif frekuensi == "weekly":
+                if jadwal in ["senin", "selasa", "rabu", "kamis", "jumat", "sabtu", "minggu"]:
+                    should_process = (today_weekday == jadwal)
+            elif frekuensi == "monthly":
+                if jadwal == "last_day":
+                    should_process = is_last_day
+                else:
+                    try:
+                        target_day = int(jadwal)
+                        should_process = (today_day == target_day)
+                    except:
+                        pass
+            # yearly bisa ditambah kalau perlu (cek tanggal + bulan)
+
+            if should_process:
+                # Catat transaksi
+                tanggal = datetime.now(pytz.timezone('Asia/Jakarta')).strftime("%Y-%m-%d %H:%M:%S")
+                
+                cat_found = next((c for c in categories if c["sub"] == sub and c["parent"] == parent and c["type"] == tipe), None)
+                if not cat_found:
+                    continue  # skip kalau kategori hilang
+
+                year_sheet.append_row([
+                    tanggal,
+                    user_name,
+                    akun,
+                    tipe,
+                    parent,
+                    sub,
+                    nominal,
+                    f"[AUTO RECURRING] {deskripsi}"
+                ])
+
+                print(f"Recurring processed: {deskripsi} - {nominal:,} ke {akun}")
+
+    except Exception as e:
+        print(f"Error processing recurring: {e}")
+
+# Setup scheduler
+scheduler = AsyncIOScheduler(timezone=pytz.timezone('Asia/Jakarta'))
+scheduler.add_job(process_recurring, CronTrigger(hour=0, minute=5))  # Jalankan jam 00:05 WIB setiap hari
+scheduler.start()
 
 if __name__ == "__main__":
     load_allowed_users_sync()
