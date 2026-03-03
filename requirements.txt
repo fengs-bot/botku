@@ -1,4 +1,6 @@
-python-telegram-bot[webhooks]==21.5
-gspread
-google-auth
-matplotlib
+python-telegram-bot[job-queue]==20.8
+gspread==6.1.2
+google-auth==2.29.0
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+matplotlib==3.8.3
