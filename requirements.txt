@@ -2,5 +2,3 @@ python-telegram-bot[webhooks]==21.5
 gspread
 google-auth
 matplotlib
-apscheduler
-pytz==2024.1

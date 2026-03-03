@@ -3,15 +3,12 @@ import os
 import json
 import traceback
 import difflib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import asyncio
 import csv
 from collections import defaultdict
-import time
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
-import pytz
+from zoneinfo import ZoneInfo  # Bawaan Python 3.9+, tidak perlu install
 
 print("=== BOT MULAI JALAN DI RAILWAY ===")
 print("Python version:", sys.version)
@@ -119,7 +116,7 @@ def get_transaksi_sheet_by_year(year: str):
         return ws
 
 def get_current_year_sheet():
-    year = datetime.now().strftime("%Y")
+    year = datetime.now(wib).strftime("%Y")
     return get_transaksi_sheet_by_year(year)
 
 def parse_sheet_amount(value):
@@ -132,20 +129,16 @@ def parse_sheet_amount(value):
 def parse_nominal(nominal_text):
     try:
         nominal_text = str(nominal_text).lower().replace(".", "").replace(",", "").strip()
-
         if "-" in nominal_text:
             raise ValueError("Nominal tidak boleh minus.")
-
         if "jt" in nominal_text:
             value = int(float(nominal_text.replace("jt", "")) * 1_000_000)
         elif "rb" in nominal_text or "k" in nominal_text:
             value = int(float(nominal_text.replace("rb", "").replace("k", "")) * 1_000)
         else:
             value = int(nominal_text)
-
         if value <= 0:
             raise ValueError("Nominal harus lebih dari 0.")
-
         return value
     except Exception as e:
         raise ValueError(f"Nominal tidak valid: {nominal_text} → {str(e)}")
@@ -179,7 +172,6 @@ def load_categories():
         return []
 
 # ================= COMMANDS =================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
@@ -325,7 +317,7 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif len(period) == 4:
             year = period
         else:
-            year = datetime.now().strftime("%Y")
+            year = datetime.now(wib).strftime("%Y")
 
         year_sheet = get_transaksi_sheet_by_year(year)
         data = year_sheet.get_all_values()[1:]
@@ -422,7 +414,7 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
             plt.grid(axis='y', linestyle='--', alpha=0.7)
 
         plt.tight_layout()
-        filename = f"chart_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        filename = f"chart_{datetime.now(wib).strftime('%Y%m%d_%H%M%S')}.png"
         plt.savefig(filename, dpi=300, bbox_inches='tight')
         plt.close()
 
@@ -528,7 +520,7 @@ async def laporan(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         total_expense = int(row[2])
                         break
         else:
-            current_year = datetime.now().strftime("%Y")
+            current_year = datetime.now(wib).strftime("%Y")
             for row in data:
                 if row[0] == current_year:
                     total_income = int(row[1])
@@ -554,15 +546,15 @@ async def ringkasan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        year = datetime.now().strftime("%Y")
+        year = datetime.now(wib).strftime("%Y")
         year_sheet = get_transaksi_sheet_by_year(year)
         data = year_sheet.get_all_values()[1:]
         if not data:
             await update.message.reply_text("Belum ada transaksi bro")
             return
 
-        today = datetime.now().strftime("%Y-%m-%d")
-        this_week_start = (datetime.now() - timedelta(days=datetime.now().weekday())).strftime("%Y-%m-%d")
+        today = datetime.now(wib).strftime("%Y-%m-%d")
+        this_week_start = (datetime.now(wib) - timedelta(days=datetime.now(wib).weekday())).strftime("%Y-%m-%d")
         this_month = today[:7]
 
         daily_income = daily_expense = 0
@@ -668,7 +660,7 @@ async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Belum ada data transaksi.")
             return
 
-        filename = f"transaksi_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        filename = f"transaksi_export_{datetime.now(wib).strftime('%Y%m%d_%H%M%S')}.csv"
         with open(filename, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerows(data)
@@ -901,7 +893,9 @@ async def hapus_kategori(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Error hapus kategori: {str(e)}")
 
+
 # ================= HANDLE PESAN UTAMA =================
+# (sudah OK, tapi timezone diubah ke zoneinfo)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
@@ -947,6 +941,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Nominal tidak terbaca. Contoh: 50rb, 1jt, 75000")
         return
 
+    wib = ZoneInfo("Asia/Jakarta")
+    tanggal = datetime.now(wib).strftime("%Y-%m-%d %H:%M:%S")
+
     # TRANSFER
     if text_lower.startswith("transfer"):
         try:
@@ -963,7 +960,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"Saldo {from_acc} kurang (saat ini: Rp {saldo_now:,})")
                 return
 
-            tanggal = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            tanggal = datetime.now(wib).strftime("%Y-%m-%d %H:%M:%S")
             sheet = get_current_year_sheet()
 
             # Debit
@@ -1048,7 +1045,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"Saldo {account} kurang (saat ini: Rp {saldo_now:,})")
             return
 
-    tanggal = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    tanggal = datetime.now(wib).strftime("%Y-%m-%d %H:%M:%S")
     sheet = get_current_year_sheet()
 
     sheet.append_row([
@@ -1091,6 +1088,7 @@ async def recurring(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Untuk sekarang belum ada command tambah/hapus via chat (bisa ditambah nanti kalau perlu)."
     )
 
+
 # ================= APP SETUP =================
 
 app = ApplicationBuilder().token(TOKEN).build()
@@ -1116,25 +1114,28 @@ app.add_handler(CommandHandler("recurring", recurring))
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# ================= RECURRING TRANSAKSI =================
+# ================= RECURRING TRANSAKSI DENGAN JOB QUEUE =================
 
-async def process_recurring():
+async def process_recurring(context: ContextTypes.DEFAULT_TYPE):
     try:
         recurring_sheet = spreadsheet.worksheet("Recurring")
         data = recurring_sheet.get_all_values()[1:]  # skip header
         
-        today = datetime.now(pytz.timezone('Asia/Jakarta'))
+        wib = ZoneInfo("Asia/Jakarta")
+        today = datetime.now(wib)
         today_day = today.day
-        today_weekday = today.strftime("%A").lower()  # monday, tuesday, dll
-        is_last_day = today_day == today.replace(day=28).day + (today - today.replace(day=28)).days  # approx akhir bulan
+        today_weekday = today.strftime("%A").lower()  # monday, tuesday, ...
+        # Cek akhir bulan sederhana
+        last_day_of_month = (today.replace(day=28) + timedelta(days=4)).day
+        is_last_day = today_day == last_day_of_month
 
         categories = load_categories()
         year_sheet = get_current_year_sheet()
-        user_name = "SYSTEM"  # atau "Recurring Auto"
+        user_name = "SYSTEM_AUTO"
 
         for row in data:
-            if len(row) < 9 or row[9].strip().lower() != "yes":
-                continue  # skip kalau tidak aktif
+            if len(row) < 10 or row[9].strip().lower() != "yes":
+                continue
 
             akun = row[1].upper()
             nominal_str = row[2]
@@ -1150,14 +1151,12 @@ async def process_recurring():
             except:
                 continue
 
-            # Cek apakah hari ini jadwalnya
             should_process = False
 
             if frekuensi == "daily":
                 should_process = True
-            elif frekuensi == "weekly":
-                if jadwal in ["senin", "selasa", "rabu", "kamis", "jumat", "sabtu", "minggu"]:
-                    should_process = (today_weekday == jadwal)
+            elif frekuensi == "weekly" and jadwal in ["senin","selasa","rabu","kamis","jumat","sabtu","minggu"]:
+                should_process = (today_weekday == jadwal)
             elif frekuensi == "monthly":
                 if jadwal == "last_day":
                     should_process = is_last_day
@@ -1167,36 +1166,35 @@ async def process_recurring():
                         should_process = (today_day == target_day)
                     except:
                         pass
-            # yearly bisa ditambah kalau perlu (cek tanggal + bulan)
 
             if should_process:
-                # Catat transaksi
-                tanggal = datetime.now(pytz.timezone('Asia/Jakarta')).strftime("%Y-%m-%d %H:%M:%S")
+                tanggal = datetime.now(wib).strftime("%Y-%m-%d %H:%M:%S")
                 
                 cat_found = next((c for c in categories if c["sub"] == sub and c["parent"] == parent and c["type"] == tipe), None)
                 if not cat_found:
-                    continue  # skip kalau kategori hilang
+                    continue
 
                 year_sheet.append_row([
-                    tanggal,
-                    user_name,
-                    akun,
-                    tipe,
-                    parent,
-                    sub,
-                    nominal,
-                    f"[AUTO RECURRING] {deskripsi}"
+                    tanggal, user_name, akun,
+                    tipe, parent, sub, nominal,
+                    f"[RECURRING AUTO] {deskripsi}"
                 ])
 
-                print(f"Recurring processed: {deskripsi} - {nominal:,} ke {akun}")
+                print(f"Recurring diproses: {deskripsi} - Rp {nominal:,} ke {akun}")
 
     except Exception as e:
-        print(f"Error processing recurring: {e}")
+        print(f"Error recurring job: {e}")
 
-# Setup scheduler
-scheduler = AsyncIOScheduler(timezone=pytz.timezone('Asia/Jakarta'))
-scheduler.add_job(process_recurring, CronTrigger(hour=0, minute=5))  # Jalankan jam 00:05 WIB setiap hari
-scheduler.start()
+# Jadwalkan job setiap hari jam 00:05 WIB
+job_queue = app.job_queue
+if job_queue:
+    job_queue.run_daily(
+        process_recurring,
+        time=time(hour=0, minute=5, second=0, tzinfo=ZoneInfo("Asia/Jakarta"))
+    )
+    print("Job recurring harian dijadwalkan jam 00:05 WIB")
+else:
+    print("WARNING: Job queue tidak tersedia!")
 
 if __name__ == "__main__":
     load_allowed_users_sync()
