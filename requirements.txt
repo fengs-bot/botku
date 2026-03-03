@@ -3,3 +3,4 @@ gspread
 google-auth
 matplotlib
 apscheduler
+pytz==2024.1
