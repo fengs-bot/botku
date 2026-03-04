@@ -461,6 +461,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message += "• /saldo          → Cek saldo semua akun + total\n"
     message += "• /riwayat <akun> → 10 transaksi terakhir akun tertentu\n"
     message += "  Contoh: /riwayat BCA  atau  /history GOPAY\n"
+    message += "• /kategori <sub> → Riwayat transaksi di kategori tertentu\n"
     message += "• /ringkasan      → Ringkasan hari ini, minggu ini, bulan ini\n"
     message += "• /laporan        → Total income, expense, net (tahun ini)\n"
     message += "  Tambah tahun: /laporan 2026  atau /laporan all\n"
@@ -662,27 +663,83 @@ async def riwayat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Error riwayat: {str(e)}\nCoba lagi atau cek log.")
 
+async def kategori_riwayat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
+
+    if not context.args:
+        await update.message.reply_text("Format: /kategori <sub kategori>\nContoh: /kategori Makan")
+        return
+
+    sub_search = " ".join(context.args).lower()
+
+    try:
+        sheet = get_current_year_sheet()
+        data = sheet.get_all_values()[1:]
+        
+        transaksi_cat = [
+            row for row in data 
+            if len(row) >= 8 and row[5].strip().lower() == sub_search
+        ]
+        
+        transaksi_cat.sort(key=lambda x: x[0], reverse=True)
+
+        if not transaksi_cat:
+            await update.message.reply_text(f"Belum ada transaksi di kategori '{sub_search.title()}'.")
+            return
+
+        message = f"Riwayat 10 transaksi terakhir '{sub_search.title()}':\n\n"
+        for row in transaksi_cat[:10]:
+            tanggal = row[0]
+            akun = row[2]
+            tipe = row[3]
+            nominal = parse_sheet_amount(row[6])
+            desk = row[7]
+            sign = "+" if tipe == "Income" else "-"
+            message += f"{tanggal} | {akun} | {sign}Rp {nominal:,} | {desk}\n"
+
+        await update.message.reply_text(message)
+
+    except Exception as e:
+        await update.message.reply_text(f"Error: {str(e)}")
+
 async def export(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
 
+    args = context.args
+    filter_akun = args[0].upper() if args else None
+    filter_bulan = args[0] if args and "-" in args[0] else None
+
     try:
-        data = transaksi_sheet.get_all_values()
-        if not data:
-            await update.message.reply_text("Belum ada data transaksi.")
+        if filter_bulan:
+            year_sheet = get_transaksi_sheet_by_year(filter_bulan[:4])
+            data = year_sheet.get_all_values()
+            # Filter bulan
+            data = [row for row in data if len(row) >= 1 and row[0].startswith(filter_bulan)]
+        else:
+            sheet = get_current_year_sheet()
+            data = sheet.get_all_values()
+
+        if filter_akun:
+            data = [row for row in data if len(row) >= 3 and row[2].strip().upper() == filter_akun]
+
+        if len(data) <= 1:
+            await update.message.reply_text("Tidak ada data yang match filter.")
             return
 
-        filename = f"transaksi_export_{datetime.now(wib).strftime('%Y%m%d_%H%M%S')}.csv"
+        filename = f"export_{filter_akun or filter_bulan or 'all'}_{datetime.now(wib).strftime('%Y%m%d_%H%M%S')}.csv"
         with open(filename, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerows(data)
 
         await update.message.reply_document(
             document=open(filename, 'rb'),
-            caption="Ini file CSV semua transaksi lu bro. Buka di Excel/Google Sheets ya!"
+            caption=f"Export {'akun ' + filter_akun if filter_akun else 'bulan ' + filter_bulan if filter_bulan else 'semua'} berhasil!"
         )
 
         os.remove(filename)
+
     except Exception as e:
         await update.message.reply_text(f"Error export: {str(e)}")
 
@@ -1257,6 +1314,7 @@ app.add_handler(CommandHandler("laporan", laporan))
 app.add_handler(CommandHandler("ringkasan", ringkasan))
 app.add_handler(CommandHandler("riwayat", riwayat))
 app.add_handler(CommandHandler("history", riwayat))
+app.add_handler(CommandHandler("kategori", kategori_riwayat))  # override /kategori yang lama kalau mau, atau pakai /riwayatkategori
 app.add_handler(CommandHandler("export", export))
 app.add_handler(CommandHandler("reloaduser", reloaduser))
 app.add_handler(CommandHandler("kategori", daftar_kategori))
@@ -1453,6 +1511,30 @@ async def send_monthly_report(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Error kirim laporan bulanan: {e}")
 
+async def weekly_backup(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        sheet = get_current_year_sheet()
+        data = sheet.get_all_values()
+        if len(data) <= 1:
+            return
+
+        filename = f"backup_mingguan_{datetime.now(wib).strftime('%Y%m%d')}.csv"
+        with open(filename, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerows(data)
+
+        await context.bot.send_document(
+            chat_id=OWNER_ID,
+            document=open(filename, 'rb'),
+            caption="Backup mingguan semua transaksi (otomatis)"
+        )
+
+        os.remove(filename)
+        print("Backup mingguan dikirim")
+
+    except Exception as e:
+        print(f"Error backup mingguan: {e}")
+
 # Jadwalkan job setiap hari jam 00:05 WIB
 job_queue = app.job_queue
 if job_queue:
@@ -1477,6 +1559,14 @@ job_queue.run_daily(
     time=time(hour=23, minute=59, second=0, tzinfo=wib)
 )
 print("Cek laporan bulanan otomatis dijadwalkan setiap hari jam 23:59 WIB")
+
+# Backup mingguan tiap Minggu jam 23:00 WIB
+job_queue.run_weekly(
+    weekly_backup,
+    day=6,  # 0=Senin, 6=Minggu
+    time=time(hour=23, minute=0, second=0, tzinfo=wib)
+)
+print("Backup mingguan otomatis dijadwalkan tiap Minggu jam 23:00 WIB")
 
 if __name__ == "__main__":
     load_allowed_users_sync()
