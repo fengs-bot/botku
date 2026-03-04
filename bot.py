@@ -1511,14 +1511,19 @@ async def send_monthly_report(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Error kirim laporan bulanan: {e}")
 
+# Backup mingguan tiap Minggu jam 23:00 WIB (pakai run_daily + cek hari)
 async def weekly_backup(context: ContextTypes.DEFAULT_TYPE):
     try:
+        today = datetime.now(wib)
+        if today.weekday() != 6:  # 0=Senin, 6=Minggu
+            return  # bukan Minggu → skip
+
         sheet = get_current_year_sheet()
         data = sheet.get_all_values()
         if len(data) <= 1:
             return
 
-        filename = f"backup_mingguan_{datetime.now(wib).strftime('%Y%m%d')}.csv"
+        filename = f"backup_mingguan_{today.strftime('%Y%m%d')}.csv"
         with open(filename, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerows(data)
@@ -1526,7 +1531,7 @@ async def weekly_backup(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_document(
             chat_id=OWNER_ID,
             document=open(filename, 'rb'),
-            caption="Backup mingguan semua transaksi (otomatis)"
+            caption=f"Backup mingguan semua transaksi ({today.strftime('%d %B %Y')}) - otomatis"
         )
 
         os.remove(filename)
@@ -1560,13 +1565,12 @@ job_queue.run_daily(
 )
 print("Cek laporan bulanan otomatis dijadwalkan setiap hari jam 23:59 WIB")
 
-# Backup mingguan tiap Minggu jam 23:00 WIB
-job_queue.run_weekly(
+# Jadwalkan cek backup setiap hari jam 23:00 WIB
+job_queue.run_daily(
     weekly_backup,
-    day=6,  # 0=Senin, 6=Minggu
     time=time(hour=23, minute=0, second=0, tzinfo=wib)
 )
-print("Backup mingguan otomatis dijadwalkan tiap Minggu jam 23:00 WIB")
+print("Cek backup mingguan otomatis dijadwalkan setiap hari jam 23:00 WIB (jalan hanya di hari Minggu)")
 
 if __name__ == "__main__":
     load_allowed_users_sync()
