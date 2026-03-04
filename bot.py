@@ -493,6 +493,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message += "• Tambah/edit/hapus kategori langsung dari Telegram (owner)\n"
     message += "• Semua transaksi otomatis masuk sheet tahun berjalan\n\n"
 
+    message += "• /addrecurring   → Tambah recurring baru\n"
+    message += "• /listrecurring  → Lihat semua recurring\n"
+    message += "• /togglerecurring <ID> on/off → Aktif/Nonaktif\n"
+    message += "• /deleterecurring <ID> → Hapus recurring\n"
+
     message += "Kalau ada kendala atau ide fitur baru, langsung bilang aja bro! 🔥"
 
     await update.message.reply_text(message, parse_mode="Markdown")
@@ -900,6 +905,148 @@ async def hapus_kategori(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Error hapus kategori: {str(e)}")
 
+async def add_recurring(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text("Command ini hanya untuk owner.")
+        return
+
+    if len(context.args) != 7:
+        await update.message.reply_text(
+            "Format:\n"
+            "/addrecurring <akun> <nominal> <tipe> <parent> <sub> <frekuensi> <jadwal>\n\n"
+            "Contoh:\n"
+            "/addrecurring BCA 150000 Expenses Fixed Expenses Internet monthly 10\n"
+            "/addrecurring SPBANK 5000000 Income Salary & Work Gaji monthly 25\n"
+            "Frekuensi: daily / weekly / monthly\n"
+            "Jadwal: angka tanggal (monthly), hari (weekly), atau 'last_day' (monthly)"
+        )
+        return
+
+    try:
+        akun, nominal_str, tipe, parent, sub, frekuensi, jadwal = context.args
+        akun = akun.upper()
+        tipe = tipe.capitalize()
+        frekuensi = frekuensi.lower()
+
+        if not account_exists(akun):
+            await update.message.reply_text(f"Akun '{akun}' tidak ditemukan.")
+            return
+
+        if tipe not in ["Income", "Expenses"]:
+            await update.message.reply_text("Tipe harus 'Income' atau 'Expenses'.")
+            return
+
+        nominal = parse_nominal(nominal_str)
+
+        recurring_sheet = spreadsheet.worksheet("Recurring")
+        # Generate ID sederhana (baris terakhir + 1)
+        existing = recurring_sheet.get_all_values()
+        new_id = len(existing)  # mulai dari 1 kalau header saja
+
+        recurring_sheet.append_row([
+            new_id, akun, nominal, tipe, parent, sub, "Auto recurring", frekuensi, jadwal, "Yes"
+        ])
+
+        await update.message.reply_text(
+            f"✅ Recurring berhasil ditambahkan!\n\n"
+            f"ID: {new_id}\n"
+            f"Akun: {akun}\n"
+            f"Nominal: Rp {nominal:,}\n"
+            f"Kategori: {tipe} > {parent} > {sub}\n"
+            f"Frekuensi: {frekuensi} pada {jadwal}\n"
+            "Aktif: Yes"
+        )
+
+    except Exception as e:
+        await update.message.reply_text(f"Error tambah recurring: {str(e)}")
+
+async def list_recurring(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text("Command ini hanya untuk owner.")
+        return
+
+    try:
+        recurring_sheet = spreadsheet.worksheet("Recurring")
+        data = recurring_sheet.get_all_values()[1:]
+        if not data:
+            await update.message.reply_text("Belum ada recurring yang terdaftar.")
+            return
+
+        message = "📅 **Daftar Recurring Aktif**\n\n"
+        for row in data:
+            if len(row) < 10 or row[9].lower() != "yes":
+                continue
+            message += f"ID {row[0]}: {row[1]} | Rp {row[2]:,} | {row[3]} > {row[5]} | {row[7]} {row[8]}\n"
+
+        await update.message.reply_text(message or "Tidak ada recurring aktif saat ini.")
+
+    except Exception as e:
+        await update.message.reply_text(f"Error list recurring: {str(e)}")
+
+async def toggle_recurring(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text("Command ini hanya untuk owner.")
+        return
+
+    if len(context.args) != 2:
+        await update.message.reply_text("Format: /togglerecurring <ID> on/off")
+        return
+
+    try:
+        rec_id = context.args[0]
+        status = context.args[1].lower()
+        if status not in ["on", "off"]:
+            await update.message.reply_text("Status harus 'on' atau 'off'.")
+            return
+
+        recurring_sheet = spreadsheet.worksheet("Recurring")
+        data = recurring_sheet.get_all_values()
+
+        found = False
+        for idx, row in enumerate(data[1:], start=2):
+            if row and row[0] == rec_id:
+                recurring_sheet.update_cell(idx, 10, "Yes" if status == "on" else "No")
+                found = True
+                break
+
+        if found:
+            await update.message.reply_text(f"Recurring ID {rec_id} diubah menjadi {'aktif' if status == 'on' else 'non-aktif'}.")
+        else:
+            await update.message.reply_text(f"ID {rec_id} tidak ditemukan.")
+
+    except Exception as e:
+        await update.message.reply_text(f"Error toggle recurring: {str(e)}")
+
+async def delete_recurring(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text("Command ini hanya untuk owner.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Format: /deleterecurring <ID>")
+        return
+
+    try:
+        rec_id = context.args[0]
+
+        recurring_sheet = spreadsheet.worksheet("Recurring")
+        data = recurring_sheet.get_all_values()
+
+        found_row = None
+        for idx, row in enumerate(data[1:], start=2):
+            if row and row[0] == rec_id:
+                found_row = idx
+                break
+
+        if not found_row:
+            await update.message.reply_text(f"ID {rec_id} tidak ditemukan.")
+            return
+
+        recurring_sheet.delete_rows(found_row)
+        await update.message.reply_text(f"Recurring ID {rec_id} berhasil dihapus.")
+
+    except Exception as e:
+        await update.message.reply_text(f"Error delete recurring: {str(e)}")
 
 # ================= HANDLE PESAN UTAMA =================
 # (sudah OK, tapi timezone diubah ke zoneinfo)
@@ -1118,6 +1265,10 @@ app.add_handler(CommandHandler("tambahkategori", tambah_kategori))
 app.add_handler(CommandHandler("editkategori", edit_kategori))
 app.add_handler(CommandHandler("hapuskategori", hapus_kategori))
 app.add_handler(CommandHandler("recurring", recurring))
+app.add_handler(CommandHandler("addrecurring", add_recurring))
+app.add_handler(CommandHandler("listrecurring", list_recurring))
+app.add_handler(CommandHandler("togglerecurring", toggle_recurring))
+app.add_handler(CommandHandler("deleterecurring", delete_recurring))
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
@@ -1244,6 +1395,64 @@ async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Error kirim ringkasan harian: {e}")
 
+async def send_monthly_report(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        today = datetime.now(wib)
+        if today.day != (today.replace(day=28) + timedelta(days=4)).day:  # hanya jalankan di akhir bulan
+            return
+
+        year = today.strftime("%Y")
+        month = today.strftime("%Y-%m")
+        year_sheet = get_transaksi_sheet_by_year(year)
+        data = year_sheet.get_all_values()[1:]
+        if not data:
+            return
+
+        monthly_income = monthly_expense = 0
+        category_expenses = defaultdict(int)
+
+        for row in data:
+            if len(row) < 7:
+                continue
+            date_str = row[0][:7]  # YYYY-MM
+            tipe = row[3]
+            category = row[5].strip()
+            amount = parse_sheet_amount(row[6])
+
+            if date_str != month:
+                continue
+
+            if tipe == "Income":
+                monthly_income += amount
+            else:
+                monthly_expense += amount
+                if "Transfer" not in category:  # skip transfer seperti di chart
+                    category_expenses[category] += amount
+
+        net = monthly_income - monthly_expense
+
+        # Top 5 pengeluaran
+        top_expenses = sorted(category_expenses.items(), key=lambda x: x[1], reverse=True)[:5]
+        top_text = "\n".join([f"• {cat}: Rp {amt:,}" for cat, amt in top_expenses]) or "Belum ada pengeluaran signifikan"
+
+        message = f"📅 **Laporan Bulanan {today.strftime('%B %Y')}**\n\n"
+        message += f"💰 Total Pemasukan: Rp {monthly_income:,}\n"
+        message += f"💸 Total Pengeluaran: Rp {monthly_expense:,}\n"
+        message += f"📊 Net: Rp {net:,}\n\n"
+        message += f"**Top 5 Pengeluaran Bulan Ini:**\n{top_text}\n\n"
+        message += "Tetap konsisten ya bro! Cek /laporan atau /chart kalau mau detail lebih lanjut. 🔥"
+
+        await context.bot.send_message(
+            chat_id=OWNER_ID,
+            text=message,
+            parse_mode="Markdown"
+        )
+
+        print(f"Laporan bulanan {month} dikirim ke owner")
+
+    except Exception as e:
+        print(f"Error kirim laporan bulanan: {e}")
+
 # Jadwalkan job setiap hari jam 00:05 WIB
 job_queue = app.job_queue
 if job_queue:
@@ -1261,6 +1470,14 @@ job_queue.run_daily(
     time=time(hour=21, minute=0, second=0, tzinfo=wib)
 )
 print("Ringkasan harian otomatis dijadwalkan jam 21:00 WIB")
+
+# Jadwalkan laporan bulanan di akhir bulan jam 23:59 WIB
+job_queue.run_monthly(
+    send_monthly_report,
+    day=28,  # mulai cek dari tanggal 28, fungsi akan filter hanya akhir bulan
+    time=time(hour=23, minute=59, second=0, tzinfo=wib)
+)
+print("Laporan bulanan otomatis dijadwalkan akhir bulan jam 23:59 WIB")
 
 if __name__ == "__main__":
     load_allowed_users_sync()
