@@ -167,6 +167,19 @@ def get_current_balance(account_name):
         print(f"Error get balance {account_name}: {e}")
         return 0
 
+def update_account_balance(account_name: str, new_balance: int):
+    """Update saldo akhir di sheet Account tanpa nimpa rumus lain."""
+    try:
+        acc_data = account_sheet.get_all_values()
+        for idx, row in enumerate(acc_data[1:], start=2):  # mulai dari baris 2 (skip header)
+            if row and row[0].strip().upper() == account_name.upper():
+                account_sheet.update_cell(idx, 5, new_balance)  # kolom E (index 5) = Saldo Akhir
+                print(f"Saldo {account_name} diupdate ke Rp {new_balance:,} di sheet Account")
+                return
+        print(f"Akun {account_name} tidak ditemukan di sheet Account untuk update saldo")
+    except Exception as e:
+        print(f"Gagal update saldo sheet Account untuk {account_name}: {e}")
+
 def load_categories():
     try:
         data = category_sheet.get_all_values()[1:]
@@ -1187,6 +1200,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Income", "Transfer", "Transfer In",
                 nominal, f"Transfer dari {from_acc}"
             ])
+            
+            update_account_balance(from_acc, get_current_balance(from_acc))
+            update_account_balance(to_acc, get_current_balance(to_acc))
 
             await update.message.reply_text(
                 f"✅ Transfer berhasil!\n"
@@ -1271,6 +1287,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
 
     new_balance = get_current_balance(account)
+    update_account_balance(account, new_balance)
     tipe_display = "Pemasukan" if best_cat["type"] == "Income" else "Pengeluaran"
 
     await update.message.reply_text(
