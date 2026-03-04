@@ -10,6 +10,9 @@ from collections import defaultdict
 
 from zoneinfo import ZoneInfo  # Bawaan Python 3.9+, tidak perlu install
 
+# ================= TIMEZONE GLOBAL =================
+wib = ZoneInfo("Asia/Jakarta")
+
 print("=== BOT MULAI JALAN DI RAILWAY ===")
 print("Python version:", sys.version)
 print("Current working dir:", os.getcwd())
