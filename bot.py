@@ -342,11 +342,17 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 continue
 
+            # SKIP TRANSFER IN/OUT
+            if "Transfer" in tipe:  # hilangkan Transfer In dan Transfer Out
+                continue
+
             # Filter data sesuai request
             if data_filter == 'expenses' and tipe != "Expenses":
                 continue
             if data_filter == 'income' and tipe != "Income":
                 continue
+
+            # ... (kode sisanya tetap sama)
 
             # Proses periode
             if period == 'all':
@@ -1188,6 +1194,53 @@ async def process_recurring(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Error recurring job: {e}")
 
+async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        # Ambil ringkasan hari ini (mirip logika di /ringkasan)
+        year = datetime.now(wib).strftime("%Y")
+        year_sheet = get_transaksi_sheet_by_year(year)
+        data = year_sheet.get_all_values()[1:]
+        if not data:
+            return  # skip kalau kosong
+
+        today = datetime.now(wib).strftime("%Y-%m-%d")
+        daily_income = daily_expense = 0
+
+        for row in data:
+            if len(row) < 7:
+                continue
+            date_str = row[0][:10]  # YYYY-MM-DD
+            tipe = row[3]
+            amount = parse_sheet_amount(row[6])
+
+            if date_str != today:
+                continue  # hanya hari ini
+
+            if tipe == "Income":
+                daily_income += amount
+            else:
+                daily_expense += amount
+
+        net = daily_income - daily_expense
+
+        message = f"🔔 **Ringkasan Harian {today}**\n\n"
+        message += f"Pemasukan: Rp {daily_income:,}\n"
+        message += f"Pengeluaran: Rp {daily_expense:,}\n"
+        message += f"Net: Rp {net:,}\n\n"
+        message += "Semua transaksi hari ini sudah tercatat. Cek /saldo kalau perlu!"
+
+        # Kirim ke owner (chat ID kamu)
+        await context.bot.send_message(
+            chat_id=OWNER_ID,
+            text=message,
+            parse_mode="Markdown"
+        )
+
+        print(f"Ringkasan harian dikirim ke owner untuk {today}")
+
+    except Exception as e:
+        print(f"Error kirim ringkasan harian: {e}")
+
 # Jadwalkan job setiap hari jam 00:05 WIB
 job_queue = app.job_queue
 if job_queue:
@@ -1198,6 +1251,13 @@ if job_queue:
     print("Job recurring harian dijadwalkan jam 00:05 WIB")
 else:
     print("WARNING: Job queue tidak tersedia!")
+
+# Jadwalkan ringkasan harian jam 21:00 WIB
+job_queue.run_daily(
+    send_daily_summary,
+    time=time(hour=21, minute=0, second=0, tzinfo=wib)
+)
+print("Ringkasan harian otomatis dijadwalkan jam 21:00 WIB")
 
 if __name__ == "__main__":
     load_allowed_users_sync()
