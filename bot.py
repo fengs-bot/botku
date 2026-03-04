@@ -336,14 +336,14 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 continue
             date_str = row[0]
             tipe = row[3]
-            category = row[5]
+            category = row[5].strip() if len(row) > 5 else ""  # kolom Sub/Category
             try:
                 amount = parse_sheet_amount(row[6])
             except:
                 continue
 
-            # SKIP TRANSFER IN/OUT
-            if "Transfer" in tipe:  # hilangkan Transfer In dan Transfer Out
+            # SKIP TRANSFER IN/OUT (filter berdasarkan category/sub)
+            if "transfer" in category.lower() or "transfer out" in category.lower() or "transfer in" in category.lower():
                 continue
 
             # Filter data sesuai request
@@ -352,9 +352,7 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if data_filter == 'income' and tipe != "Income":
                 continue
 
-            # ... (kode sisanya tetap sama)
-
-            # Proses periode
+            # Proses periode (tetap sama)
             if period == 'all':
                 pass
             elif '-' in period:  # YYYY-MM
@@ -1196,47 +1194,52 @@ async def process_recurring(context: ContextTypes.DEFAULT_TYPE):
 
 async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Ambil ringkasan hari ini (mirip logika di /ringkasan)
         year = datetime.now(wib).strftime("%Y")
         year_sheet = get_transaksi_sheet_by_year(year)
         data = year_sheet.get_all_values()[1:]
         if not data:
-            return  # skip kalau kosong
+            return
 
         today = datetime.now(wib).strftime("%Y-%m-%d")
         daily_income = daily_expense = 0
 
+        has_transaction = False
+
         for row in data:
             if len(row) < 7:
                 continue
-            date_str = row[0][:10]  # YYYY-MM-DD
+            date_str = row[0][:10]
             tipe = row[3]
             amount = parse_sheet_amount(row[6])
 
             if date_str != today:
-                continue  # hanya hari ini
+                continue
+
+            has_transaction = True
 
             if tipe == "Income":
                 daily_income += amount
             else:
                 daily_expense += amount
 
+        if not has_transaction:
+            return  # tidak kirim kalau hari ini kosong
+
         net = daily_income - daily_expense
 
         message = f"🔔 **Ringkasan Harian {today}**\n\n"
-        message += f"Pemasukan: Rp {daily_income:,}\n"
-        message += f"Pengeluaran: Rp {daily_expense:,}\n"
-        message += f"Net: Rp {net:,}\n\n"
-        message += "Semua transaksi hari ini sudah tercatat. Cek /saldo kalau perlu!"
+        message += f"💰 Pemasukan: Rp {daily_income:,}\n"
+        message += f"💸 Pengeluaran: Rp {daily_expense:,}\n"
+        message += f"📊 Net: Rp {net:,}\n\n"
+        message += "Tetap semangat kelola keuangan ya bro! 🔥 Cek /saldo atau /riwayat kalau perlu detail."
 
-        # Kirim ke owner (chat ID kamu)
         await context.bot.send_message(
             chat_id=OWNER_ID,
             text=message,
             parse_mode="Markdown"
         )
 
-        print(f"Ringkasan harian dikirim ke owner untuk {today}")
+        print(f"Ringkasan harian {today} dikirim ke owner")
 
     except Exception as e:
         print(f"Error kirim ringkasan harian: {e}")
