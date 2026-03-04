@@ -1471,13 +1471,12 @@ job_queue.run_daily(
 )
 print("Ringkasan harian otomatis dijadwalkan jam 21:00 WIB")
 
-# Jadwalkan laporan bulanan di akhir bulan jam 23:59 WIB
-job_queue.run_monthly(
+# Jadwalkan cek akhir bulan setiap hari jam 23:59 WIB
+job_queue.run_daily(
     send_monthly_report,
-    day=28,  # mulai cek dari tanggal 28, fungsi akan filter hanya akhir bulan
     time=time(hour=23, minute=59, second=0, tzinfo=wib)
 )
-print("Laporan bulanan otomatis dijadwalkan akhir bulan jam 23:59 WIB")
+print("Cek laporan bulanan otomatis dijadwalkan setiap hari jam 23:59 WIB")
 
 if __name__ == "__main__":
     load_allowed_users_sync()
