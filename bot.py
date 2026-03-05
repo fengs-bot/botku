@@ -3,7 +3,8 @@ import os
 import json
 import traceback
 import difflib
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
+import time  # ini modul time yang benar, punya time.time()
 import asyncio
 import csv
 from collections import defaultdict
@@ -1288,6 +1289,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     new_balance = get_current_balance(account)
     update_account_balance(account, new_balance)
+
     tipe_display = "Pemasukan" if best_cat["type"] == "Income" else "Pengeluaran"
 
     await update.message.reply_text(
@@ -1412,6 +1414,8 @@ async def process_recurring(context: ContextTypes.DEFAULT_TYPE):
                     tipe, parent, sub, nominal,
                     f"[RECURRING AUTO] {deskripsi}"
                 ])
+
+                update_account_balance(akun, get_current_balance(akun))
 
                 print(f"Recurring diproses: {deskripsi} - Rp {nominal:,} ke {akun}")
 
