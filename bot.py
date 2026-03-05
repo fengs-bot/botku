@@ -1221,6 +1221,60 @@ async def budget_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Error budget status: {str(e)}")
 
+async def set_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
+
+    if len(context.args) != 2:
+        await update.message.reply_text(
+            "Format:\n"
+            "/setbudget <sub-kategori> <nominal>\n\n"
+            "Contoh:\n"
+            "/setbudget Makan 1000000\n"
+            "/setbudget Transport 500000\n\n"
+            "Sub-kategori harus sudah terdaftar di /kategori atau sheet Categories."
+        )
+        return
+
+    try:
+        sub_cat_input = context.args[0]
+        nominal_str = context.args[1]
+
+        nominal = parse_nominal(nominal_str)
+
+        # Cek apakah sub-kategori ada di sheet Categories
+        categories = load_categories()
+        valid_sub = any(cat["sub"].strip().lower() == sub_cat_input.strip().lower() for cat in categories)
+        if not valid_sub:
+            await update.message.reply_text(
+                f"Sub-kategori '{sub_cat_input}' tidak ditemukan di daftar kategori.\n"
+                "Cek dulu dengan /kategori atau /daftarkategori.\n"
+                "Pastikan huruf besar/kecil sama persis."
+            )
+            return
+
+        budget_sheet = get_budget_sheet()
+        existing = budget_sheet.get_all_values()[1:]
+
+        # Cek kalau sudah ada (update kalau ada, tambah kalau belum)
+        row_to_update = None
+        for idx, row in enumerate(existing, start=2):
+            if len(row) >= 2 and row[0].strip().lower() == sub_cat_input.strip().lower():
+                row_to_update = idx
+                break
+
+        if row_to_update:
+            budget_sheet.update_cell(row_to_update, 2, nominal)
+            msg = f"✅ Budget bulanan untuk '{sub_cat_input}' diperbarui menjadi Rp {nominal:,}"
+        else:
+            budget_sheet.append_row([sub_cat_input, nominal, ""])
+            msg = f"✅ Budget bulanan baru ditambahkan: '{sub_cat_input}' Rp {nominal:,} (berlaku setiap bulan)"
+
+        await update.message.reply_text(msg)
+
+    except Exception as e:
+        await update.message.reply_text(f"Error set budget: {str(e)}")
+
 async def edit_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
