@@ -3,8 +3,8 @@ import os
 import json
 import traceback
 import difflib
-from datetime import datetime, timedelta
-import time  # ini modul time yang benar, punya time.time()
+from datetime import datetime, timedelta, time as dt_time  # rename class datetime.time jadi dt_time
+import time  # modul time untuk time.time()
 import asyncio
 import csv
 from collections import defaultdict
@@ -1569,7 +1569,7 @@ job_queue = app.job_queue
 if job_queue:
     job_queue.run_daily(
         process_recurring,
-        time=time(hour=0, minute=5, second=0, tzinfo=ZoneInfo("Asia/Jakarta"))
+        time=dt_time(hour=0, minute=5, second=0, tzinfo=ZoneInfo("Asia/Jakarta"))
     )
     print("Job recurring harian dijadwalkan jam 00:05 WIB")
 else:
@@ -1578,21 +1578,21 @@ else:
 # Jadwalkan ringkasan harian jam 21:00 WIB
 job_queue.run_daily(
     send_daily_summary,
-    time=time(hour=21, minute=0, second=0, tzinfo=wib)
+    time=dt_time(hour=21, minute=0, second=0, tzinfo=wib)
 )
 print("Ringkasan harian otomatis dijadwalkan jam 21:00 WIB")
 
 # Jadwalkan cek akhir bulan setiap hari jam 23:59 WIB
 job_queue.run_daily(
     send_monthly_report,
-    time=time(hour=23, minute=59, second=0, tzinfo=wib)
+    time=dt_time(hour=23, minute=59, second=0, tzinfo=wib)
 )
 print("Cek laporan bulanan otomatis dijadwalkan setiap hari jam 23:59 WIB")
 
 # Jadwalkan cek backup setiap hari jam 23:00 WIB
 job_queue.run_daily(
     weekly_backup,
-    time=time(hour=23, minute=0, second=0, tzinfo=wib)
+    time=dt_time(hour=23, minute=0, second=0, tzinfo=wib)
 )
 print("Cek backup mingguan otomatis dijadwalkan setiap hari jam 23:00 WIB (jalan hanya di hari Minggu)")
 
