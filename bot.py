@@ -681,6 +681,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message += "• /saldo          → Cek saldo semua akun + total\n"
     message += "• /riwayat <akun> → 10 transaksi terakhir akun tertentu\n"
     message += "  Contoh: /riwayat BCA  atau  /history GOPAY\n"
+    message += "• /recent atau /riwayatterakhir → 10 transaksi terakhir dari semua akun\n"
     message += "• /kategori <sub> → Riwayat transaksi di kategori tertentu\n"
     message += "• /ringkasan      → Ringkasan hari ini, minggu ini, bulan ini\n"
     message += "• /laporan        → Total income, expense, net (tahun ini)\n"
@@ -887,6 +888,40 @@ async def riwayat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await update.message.reply_text(f"Error riwayat: {str(e)}\nCoba lagi atau cek log.")
+
+async def recent_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
+
+    try:
+        sheet = get_current_year_sheet()
+        data = sheet.get_all_values()[1:]  # skip header
+        
+        if not data:
+            await update.message.reply_text("Belum ada transaksi sama sekali bro.")
+            return
+
+        # Urutkan berdasarkan tanggal (kolom 0), terbaru dulu
+        data.sort(key=lambda x: x[0], reverse=True)
+
+        message = "🕒 **10 Transaksi Terakhir (Semua Akun)**\n\n"
+        for row in data[:10]:
+            if len(row) < 8:
+                continue
+            tanggal = row[0]
+            user = row[1]
+            akun = row[2]
+            tipe = row[3]
+            sub = row[5]
+            nominal = parse_sheet_amount(row[6])
+            desk = row[7] if len(row) > 7 else "-"
+            sign = "+" if tipe == "Income" else "-"
+            message += f"{tanggal} | {akun} | {sign}Rp {nominal:,} | {sub} | {desk}\n"
+
+        await update.message.reply_text(message)
+
+    except Exception as e:
+        await update.message.reply_text(f"Error riwayat terakhir: {str(e)}\nCoba lagi atau cek log.")
 
 async def kategori_riwayat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
@@ -1785,6 +1820,8 @@ app.add_handler(CommandHandler("laporan", laporan))
 app.add_handler(CommandHandler("ringkasan", ringkasan))
 app.add_handler(CommandHandler("riwayat", riwayat))
 app.add_handler(CommandHandler("history", riwayat))
+app.add_handler(CommandHandler("recent", recent_transactions))
+app.add_handler(CommandHandler("riwayatterakhir", recent_transactions))  # alias kalau mau
 app.add_handler(CommandHandler("kategori", kategori_riwayat))  # override /kategori yang lama kalau mau, atau pakai /riwayatkategori
 app.add_handler(CommandHandler("export", export))
 app.add_handler(CommandHandler("reloaduser", reloaduser))
