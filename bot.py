@@ -1382,6 +1382,7 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 async def process_recurring(context: ContextTypes.DEFAULT_TYPE):
     try:
+        print(f"Memproses recurring sheet: {len(data)} baris ditemukan")
         recurring_sheet = spreadsheet.worksheet("Recurring")
         data = recurring_sheet.get_all_values()[1:]  # skip header
         
