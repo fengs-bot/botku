@@ -991,18 +991,22 @@ async def add_recurring(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Format:\n"
             "/addrecurring <akun> <nominal> <tipe> <parent> <sub> <frekuensi> <jadwal>\n\n"
             "Contoh:\n"
-            "/addrecurring BCA 150000 Expenses Fixed Expenses Internet monthly 10\n"
-            "/addrecurring SPBANK 5000000 Income Salary & Work Gaji monthly 25\n"
+            "/addrecurring BCA 150000 Expenses Fixed_Expenses Internet monthly 10\n"
+            "/addrecurring SPBANK 5000000 Income Salary_&_Work Gaji monthly 25\n\n"
+            "Gunakan underscore _ untuk spasi di Parent atau Sub (bot akan ganti jadi spasi).\n"
             "Frekuensi: daily / weekly / monthly\n"
             "Jadwal: angka tanggal (monthly), hari (weekly), atau 'last_day' (monthly)"
         )
         return
 
     try:
-        akun, nominal_str, tipe, parent, sub, frekuensi, jadwal = context.args
-        akun = akun.upper()
-        tipe = tipe.capitalize()
-        frekuensi = frekuensi.lower()
+        akun = context.args[0].upper()
+        nominal_str = context.args[1]
+        tipe = context.args[2].capitalize()
+        parent = context.args[3].replace("_", " ")   # fix spasi
+        sub = context.args[4].replace("_", " ")      # fix spasi
+        frekuensi = context.args[5].lower()
+        jadwal = context.args[6].lower()
 
         if not account_exists(akun):
             await update.message.reply_text(f"Akun '{akun}' tidak ditemukan.")
@@ -1015,7 +1019,6 @@ async def add_recurring(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nominal = parse_nominal(nominal_str)
 
         recurring_sheet = spreadsheet.worksheet("Recurring")
-        # Generate ID sederhana (baris terakhir + 1)
         existing = recurring_sheet.get_all_values()
         new_id = len(existing)  # mulai dari 1 kalau header saja
 
