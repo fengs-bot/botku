@@ -1461,8 +1461,8 @@ async def set_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/setbudget <sub-kategori> <nominal>\n\n"
             "Contoh:\n"
             "/setbudget Makan 1000000\n"
-            "/setbudget Transport 500000\n\n"
-            "Sub-kategori harus sudah terdaftar di /kategori atau sheet Categories."
+            "/setbudget Makan_&_Minum 650000\n"
+            "Bisa pakai spasi atau underscore, bot akan samakan."
         )
         return
 
@@ -1472,38 +1472,48 @@ async def set_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         nominal = parse_nominal(nominal_str)
 
-        # Cek apakah sub-kategori ada di sheet Categories
+        # Normalisasi input & kategori untuk match lebih mudah
+        def normalize(text):
+            return text.lower().replace("_", " ").replace("&", "dan").replace("  ", " ").strip()
+
+        norm_input = normalize(sub_cat_input)
+
         categories = load_categories()
-        valid_sub = any(cat["sub"].strip().lower() == sub_cat_input.strip().lower() for cat in categories)
-        if not valid_sub:
+        best_match = None
+        for cat in categories:
+            norm_sub = normalize(cat["sub"])
+            if norm_sub == norm_input:
+                best_match = cat["sub"]  # pakai nama asli dari sheet
+                break
+
+        if not best_match:
             await update.message.reply_text(
-                f"Sub-kategori '{sub_cat_input}' tidak ditemukan di daftar kategori.\n"
-                "Cek dulu dengan /kategori atau /daftarkategori.\n"
-                "Pastikan huruf besar/kecil sama persis."
+                f"Sub-kategori '{sub_cat_input}' tidak ditemukan atau tidak cukup mirip.\n"
+                "Cek dulu dengan /kategori (pastikan huruf, spasi, & sama persis).\n"
+                "Contoh: kalau di sheet 'Makan & Minum', ketik persis seperti itu."
             )
             return
 
         budget_sheet = get_budget_sheet()
         existing = budget_sheet.get_all_values()[1:]
 
-        # Cek kalau sudah ada (update kalau ada, tambah kalau belum)
         row_to_update = None
         for idx, row in enumerate(existing, start=2):
-            if len(row) >= 2 and row[0].strip().lower() == sub_cat_input.strip().lower():
+            if len(row) >= 2 and normalize(row[0]) == norm_input:
                 row_to_update = idx
                 break
 
         if row_to_update:
             budget_sheet.update_cell(row_to_update, 2, nominal)
-            msg = f"✅ Budget bulanan untuk '{sub_cat_input}' diperbarui menjadi Rp {nominal:,}"
+            msg = f"✅ Budget bulanan untuk '{best_match}' diperbarui menjadi Rp {nominal:,}"
         else:
-            budget_sheet.append_row([sub_cat_input, nominal, ""])
-            msg = f"✅ Budget bulanan baru ditambahkan: '{sub_cat_input}' Rp {nominal:,} (berlaku setiap bulan)"
+            budget_sheet.append_row([best_match, nominal, ""])
+            msg = f"✅ Budget bulanan baru ditambahkan: '{best_match}' Rp {nominal:,} (berlaku setiap bulan)"
 
         await update.message.reply_text(msg)
 
     except Exception as e:
-        await update.message.reply_text(f"Error set budget: {str(e)}")
+        await update.message.reply_text(f"Error set budget: {str(e)}\nCoba lagi atau cek sheet Categories.")
 
 async def edit_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
