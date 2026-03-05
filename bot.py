@@ -1205,8 +1205,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 nominal, f"Transfer dari {from_acc}"
             ])
             
-            update_account_balance(from_acc, get_current_balance(from_acc))
-            update_account_balance(to_acc, get_current_balance(to_acc))
+            #update_account_balance(from_acc, get_current_balance(from_acc))
+            #update_account_balance(to_acc, get_current_balance(to_acc))
 
             await update.message.reply_text(
                 f"✅ Transfer berhasil!\n"
@@ -1291,7 +1291,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
 
     new_balance = get_current_balance(account)
-    update_account_balance(account, new_balance)
+    #update_account_balance(account, new_balance)
 
     tipe_display = "Pemasukan" if best_cat["type"] == "Income" else "Pengeluaran"
 
@@ -1418,7 +1418,7 @@ async def process_recurring(context: ContextTypes.DEFAULT_TYPE):
                     f"[RECURRING AUTO] {deskripsi}"
                 ])
 
-                update_account_balance(akun, get_current_balance(akun))
+                #update_account_balance(akun, get_current_balance(akun))
 
                 print(f"Recurring diproses: {deskripsi} - Rp {nominal:,} ke {akun}")
 
