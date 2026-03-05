@@ -195,6 +195,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Bot aktif 24 jam 🚀 Selamat datang bro!")
 
 async def hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("DEBUG: type of time:", type(time))  # harus <class 'module'>
+    print("DEBUG: time.time() callable?", callable(time.time))  # harus True
+    # ... kode selanjutnya
     if not await is_allowed_user(update, context):
         return
     
