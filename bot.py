@@ -1046,21 +1046,42 @@ async def list_recurring(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         recurring_sheet = spreadsheet.worksheet("Recurring")
-        data = recurring_sheet.get_all_values()[1:]
+        data = recurring_sheet.get_all_values()[1:]  # skip header
         if not data:
             await update.message.reply_text("Belum ada recurring yang terdaftar.")
             return
 
         message = "📅 **Daftar Recurring Aktif**\n\n"
-        for row in data:
-            if len(row) < 10 or row[9].lower() != "yes":
-                continue
-            message += f"ID {row[0]}: {row[1]} | Rp {row[2]:,} | {row[3]} > {row[5]} | {row[7]} {row[8]}\n"
+        found_active = False
 
-        await update.message.reply_text(message or "Tidak ada recurring aktif saat ini.")
+        for row in data:
+            if len(row) < 10:
+                continue  # row tidak lengkap
+
+            if row[9].strip().lower() != "yes":
+                continue  # hanya aktif
+
+            found_active = True
+
+            try:
+                # Parse Nominal aman (kolom B, index 1)
+                nominal_raw = row[1].strip()
+                # Hapus Rp, koma, titik ribuan, dll
+                nominal_clean = nominal_raw.replace("Rp", "").replace(".", "").replace(",", "").replace(" ", "")
+                nominal = int(nominal_clean) if nominal_clean.isdigit() else 0
+            except:
+                nominal = 0  # kalau gagal parse, tampil 0
+
+            # Tampil dengan format rupiah aman
+            message += f"ID {row[0]}: {row[1]} | Rp {nominal:,} | {row[3]} > {row[5]} | {row[7]} {row[8]}\n"
+
+        if not found_active:
+            message += "Tidak ada recurring aktif saat ini."
+
+        await update.message.reply_text(message)
 
     except Exception as e:
-        await update.message.reply_text(f"Error list recurring: {str(e)}")
+        await update.message.reply_text(f"Error list recurring: {str(e)}\nCek sheet Recurring: pastikan kolom Nominal (B) adalah angka murni tanpa 'Rp' atau format khusus. Coba ubah format cell ke 'Plain text' atau 'Number' tanpa thousand separator.")
 
 async def toggle_recurring(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
