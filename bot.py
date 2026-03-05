@@ -267,6 +267,201 @@ async def hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Error: {str(e)}")
 
+# State untuk pending edit (mirip hapus_pending)
+edit_pending = defaultdict(dict)  # user_id → {'row': int, 'timestamp': float, 'chat_id': int, 'old_data': dict}
+
+async def edit_transaksi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Format:\n"
+            "/edit <nomor baris>\n\n"
+            "Contoh:\n"
+            "/edit 15"
+        )
+        return
+
+    try:
+        arg = context.args[0]
+        row_to_edit = int(arg)
+        if row_to_edit < 2:
+            await update.message.reply_text("Baris minimal 2 (header dihitung baris 1).")
+            return
+
+        sheet = get_current_year_sheet()
+        all_data = sheet.get_all_values()
+        if row_to_edit > len(all_data):
+            await update.message.reply_text(f"Baris {row_to_edit} tidak ada.")
+            return
+
+        transaksi = all_data[row_to_edit - 1]
+        tanggal = transaksi[0]
+        user = transaksi[1]
+        akun = transaksi[2]
+        tipe = transaksi[3]
+        parent = transaksi[4]
+        sub = transaksi[5]
+        nominal = format_rupiah(transaksi[6])
+        desk = transaksi[7] if len(transaksi) > 7 else "-"
+
+        user_id = update.effective_user.id
+        edit_pending[user_id] = {
+            'row': row_to_edit,
+            'timestamp': time.time(),
+            'chat_id': update.effective_chat.id,
+            'old_data': {
+                'user': user,
+                'akun': akun,
+                'tipe': tipe,
+                'parent': parent,
+                'sub': sub,
+                'nominal': transaksi[6],
+                'desk': desk
+            }
+        }
+
+        await update.message.reply_text(
+            f"Edit transaksi baris {row_to_edit}:\n\n"
+            f"Tanggal (tidak bisa diubah): {tanggal}\n"
+            f"User: {user}\n"
+            f"Akun: {akun}\n"
+            f"Tipe: {tipe}\n"
+            f"Parent: {parent}\n"
+            f"Sub/Kategori: {sub}\n"
+            f"Nominal: Rp {nominal}\n"
+            f"Deskripsi: {desk}\n\n"
+            "Balas dengan data baru yang ingin diubah (dalam 60 detik):\n"
+            "Contoh:\n"
+            "  BCA 45000 jajan baru           → ubah akun, nominal, deskripsi\n"
+            "  ubah nominal 50000              → hanya ubah nominal\n"
+            "  ubah akun GOPAY                 → hanya ubah akun\n"
+            "  ubah kategori Makan             → hanya ubah sub kategori\n"
+            "  ubah deskripsi makan malam      → hanya ubah deskripsi\n\n"
+            "Balas apa saja selain format di atas untuk batal."
+        )
+
+    except ValueError:
+        await update.message.reply_text("Masukkan nomor baris yang valid (angka).")
+    except Exception as e:
+        await update.message.reply_text(f"Error: {str(e)}")
+
+
+async def handle_edit_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    state = edit_pending.get(user_id)
+    if not state:
+        return  # bukan balasan edit
+
+    if time.time() - state['timestamp'] > 60:
+        edit_pending.pop(user_id, None)
+        await update.message.reply_text("Waktu edit kadaluarsa.")
+        return
+
+    text = update.message.text.strip()
+    text_lower = text.lower()
+    old = state['old_data']
+    sheet = get_current_year_sheet()
+    row = state['row']
+
+    updated = False
+
+    # Parsing sederhana balasan user
+    if "ubah nominal" in text_lower:
+        try:
+            new_nominal_str = text.split("ubah nominal")[-1].strip()
+            new_nominal = parse_nominal(new_nominal_str)
+            sheet.update_cell(row, 7, new_nominal)  # kolom G (index 7)
+            updated = True
+        except:
+            await update.message.reply_text("Format nominal salah.")
+            return
+
+    elif "ubah akun" in text_lower:
+        new_akun = text.split("ubah akun")[-1].strip().upper()
+        if account_exists(new_akun):
+            sheet.update_cell(row, 3, new_akun)  # kolom C
+            updated = True
+        else:
+            await update.message.reply_text(f"Akun '{new_akun}' tidak ditemukan.")
+            return
+
+    elif "ubah kategori" in text_lower or "ubah sub" in text_lower:
+        new_sub = text.split("ubah kategori")[-1].strip() if "ubah kategori" in text_lower else text.split("ubah sub")[-1].strip()
+        categories = load_categories()
+        best_cat = None
+        for cat in categories:
+            if cat["sub"].lower() == new_sub.lower():
+                best_cat = cat
+                break
+        if best_cat:
+            sheet.update_cell(row, 4, best_cat["type"])   # Type
+            sheet.update_cell(row, 5, best_cat["parent"]) # Parent
+            sheet.update_cell(row, 6, best_cat["sub"])    # Sub
+            updated = True
+        else:
+            await update.message.reply_text(f"Kategori '{new_sub}' tidak ditemukan.")
+            return
+
+    elif "ubah deskripsi" in text_lower:
+        new_desk = text.split("ubah deskripsi")[-1].strip()
+        sheet.update_cell(row, 8, new_desk)  # kolom H
+        updated = True
+
+    else:
+        # Asumsi full edit (mirip input transaksi baru)
+        parts = text_lower.split()
+        new_account = None
+        new_nominal = None
+        new_desk = text
+
+        for p in parts:
+            if account_exists(p.upper()):
+                new_account = p.upper()
+            try:
+                new_nominal = parse_nominal(p)
+            except:
+                pass
+
+        if new_nominal:
+            sheet.update_cell(row, 7, new_nominal)
+            updated = True
+        if new_account:
+            sheet.update_cell(row, 3, new_account)
+            updated = True
+        if new_desk and new_desk != text:
+            sheet.update_cell(row, 8, new_desk)
+            updated = True
+
+        # Rematch kategori kalau deskripsi berubah
+        if updated:
+            categories = load_categories()
+            best_cat = None
+            best_score = 0.0
+            for cat in categories:
+                sub_lower = cat["sub"].lower()
+                if sub_lower in text_lower:
+                    best_cat = cat
+                    best_score = 1.0
+                    break
+                for word in parts:
+                    score = difflib.SequenceMatcher(None, word, sub_lower).ratio()
+                    if score > best_score and score >= 0.7:
+                        best_score = score
+                        best_cat = cat
+            if best_cat:
+                sheet.update_cell(row, 4, best_cat["type"])
+                sheet.update_cell(row, 5, best_cat["parent"])
+                sheet.update_cell(row, 6, best_cat["sub"])
+
+    if updated:
+        await update.message.reply_text(f"✅ Transaksi baris {row} berhasil diedit!")
+    else:
+        await update.message.reply_text("Tidak ada perubahan yang terdeteksi. Coba lagi dengan format yang benar.")
+
+    edit_pending.pop(user_id, None)
+
 async def saldo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
@@ -1402,6 +1597,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         hapus_pending.pop(user_id, None)
         return
+    # Setelah blok if state: (hapus_pending)
+    state_edit = edit_pending.get(user_id)
+    if state_edit:
+        await handle_edit_reply(update, context)
+        return
 
     # Proses transaksi / transfer
     parts = text_lower.split()
@@ -1578,6 +1778,7 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("saldo", saldo))
 app.add_handler(CommandHandler("chart", chart))
 app.add_handler(CommandHandler("hapus", hapus))
+app.add_handler(CommandHandler("edit", edit_transaksi))
 app.add_handler(CommandHandler("help", help_command))
 app.add_handler(CommandHandler("menu", help_command))
 app.add_handler(CommandHandler("laporan", laporan))
