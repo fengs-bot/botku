@@ -499,7 +499,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message += "🔹 **Command Owner Only** (hanya Fengky)\n"
     message += "• /reloaduser     → Refresh daftar user dari sheet USER\n"
     message += "• /tambahkategori <Type> <Parent> <Sub>\n"
-    message += "  Contoh: /tambahkategori Expenses Daily Expenses Cuci Mobil\n"
+    message += "  Contoh: /tambahkategori Expenses Fixed_Expenses Biaya_Admin\n"
     message += "• /editkategori <Old Sub> <New Type> <New Parent> <New Sub>\n"
     message += "  Contoh: /editkategori Cuci Mobil Expenses Lifestyle Cuci Kendaraan\n"
     message += "• /hapuskategori <Sub Kategori>\n"
@@ -843,7 +843,9 @@ async def tambah_kategori(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        tipe, parent, sub = context.args[0], context.args[1], " ".join(context.args[2:])
+        tipe = context.args[0]
+        parent = context.args[1].replace("_", " ")  # ganti _ jadi spasi
+        sub = context.args[2].replace("_", " ")     # ganti _ jadi spasi
         
         # Validasi sederhana
         if tipe not in ["Income", "Expenses"]:
