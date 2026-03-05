@@ -188,6 +188,14 @@ def load_categories():
     except:
         return []
 
+def get_budget_sheet():
+    try:
+        return spreadsheet.worksheet("Budget")
+    except gspread.exceptions.WorksheetNotFound:
+        ws = spreadsheet.add_worksheet(title="Budget", rows="1000", cols="3")
+        ws.append_row(["Sub Kategori", "Budget Bulanan", "Catatan"])
+        return ws
+
 # ================= COMMANDS =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
@@ -515,6 +523,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message += "• /listrecurring  → Lihat semua recurring\n"
     message += "• /togglerecurring <ID> on/off → Aktif/Nonaktif\n"
     message += "• /deleterecurring <ID> → Hapus recurring\n"
+
+    message += "• /setbudget <kategori> <nominal> → Set budget bulanan per kategori (berlaku selamanya)\n"
+    message += "• /editbudget <kategori> <nominal baru> → Ubah budget yang sudah ada\n"
+    message += "• /hapusbudget <kategori> → Hapus budget kategori tertentu\n"
+    message += "• /budget → Cek status budget bulan ini (terpakai vs sisa)\n"
 
     message += "Kalau ada kendala atau ide fitur baru, langsung bilang aja bro! 🔥"
 
@@ -1148,6 +1161,161 @@ async def delete_recurring(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Error delete recurring: {str(e)}")
 
+async def budget_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
+
+    try:
+        bulan = datetime.now(wib).strftime("%Y-%m")
+        budget_sheet = get_budget_sheet()
+        budget_data = budget_sheet.get_all_values()[1:]
+
+        if not budget_data:
+            await update.message.reply_text("Belum ada budget yang diset. Gunakan /setbudget dulu.")
+            return
+
+        trans_sheet = get_transaksi_sheet_by_year(bulan[:4])
+        trans_data = trans_sheet.get_all_values()[1:]
+
+        message = f"📊 **Status Budget Bulan {bulan}**\n\n"
+
+        total_budget = 0
+        total_used = 0
+
+        for budget_row in budget_data:
+            if len(budget_row) < 2:
+                continue
+            sub_cat = budget_row[0].strip()
+            budget_amt = int(budget_row[1]) if budget_row[1].isdigit() else 0
+            total_budget += budget_amt
+
+            # Hitung pengeluaran real di kategori ini (bulan ini saja)
+            used = 0
+            for trans in trans_data:
+                if len(trans) < 7:
+                    continue
+                date_str = trans[0][:7]
+                tipe = trans[3]
+                cat = trans[5].strip()
+                amt = parse_sheet_amount(trans[6])
+                if date_str == bulan and tipe == "Expenses" and cat.lower() == sub_cat.lower():
+                    used += amt
+
+            total_used += used
+            sisa = budget_amt - used
+            persen = (used / budget_amt * 100) if budget_amt > 0 else 0
+
+            status_emoji = "🟢" if persen < 70 else "🟡" if persen < 90 else "🟠" if persen < 100 else "🔴"
+            message += f"{status_emoji} **{sub_cat}**\n"
+            message += f"  Budget: Rp {budget_amt:,}\n"
+            message += f"  Terpakai: Rp {used:,} ({persen:.1f}%)\n"
+            message += f"  Sisa: Rp {sisa:,}\n\n"
+
+        if total_budget > 0:
+            message += f"**Total Budget Bulanan: Rp {total_budget:,}**\n"
+            message += f"**Total Terpakai Bulan Ini: Rp {total_used:,}**\n"
+            message += f"**Sisa Keseluruhan: Rp {total_budget - total_used:,}**"
+
+        await update.message.reply_text(message)
+
+    except Exception as e:
+        await update.message.reply_text(f"Error budget status: {str(e)}")
+
+async def edit_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
+
+    if len(context.args) != 2:
+        await update.message.reply_text(
+            "Format:\n"
+            "/editbudget <sub-kategori> <nominal baru>\n\n"
+            "Contoh:\n"
+            "/editbudget Makan 1200000\n\n"
+            "Sub-kategori harus sudah ada di budget sebelumnya."
+        )
+        return
+
+    try:
+        sub_cat_input = context.args[0]
+        nominal_str = context.args[1]
+
+        nominal = parse_nominal(nominal_str)
+
+        # Cek apakah sub-kategori valid di Categories
+        categories = load_categories()
+        valid_sub = any(cat["sub"].strip().lower() == sub_cat_input.strip().lower() for cat in categories)
+        if not valid_sub:
+            await update.message.reply_text(
+                f"Sub-kategori '{sub_cat_input}' tidak ditemukan di daftar kategori.\n"
+                "Cek dulu dengan /kategori atau /daftarkategori."
+            )
+            return
+
+        budget_sheet = get_budget_sheet()
+        existing = budget_sheet.get_all_values()[1:]
+
+        row_to_update = None
+        for idx, row in enumerate(existing, start=2):
+            if len(row) >= 2 and row[0].strip().lower() == sub_cat_input.strip().lower():
+                row_to_update = idx
+                break
+
+        if not row_to_update:
+            await update.message.reply_text(
+                f"Budget untuk '{sub_cat_input}' belum pernah diset.\n"
+                "Gunakan /setbudget dulu kalau mau tambah baru."
+            )
+            return
+
+        # Update nominal di kolom B (index 2)
+        budget_sheet.update_cell(row_to_update, 2, nominal)
+        await update.message.reply_text(
+            f"✅ Budget bulanan '{sub_cat_input}' berhasil diubah menjadi Rp {nominal:,}"
+        )
+
+    except Exception as e:
+        await update.message.reply_text(f"Error edit budget: {str(e)}")
+
+async def hapus_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_allowed_user(update, context):
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Format:\n"
+            "/hapusbudget <sub-kategori>\n\n"
+            "Contoh:\n"
+            "/hapusbudget Makan"
+        )
+        return
+
+    try:
+        sub_cat_input = " ".join(context.args).strip()
+
+        budget_sheet = get_budget_sheet()
+        existing = budget_sheet.get_all_values()[1:]
+
+        row_to_delete = None
+        for idx, row in enumerate(existing, start=2):
+            if len(row) >= 2 and row[0].strip().lower() == sub_cat_input.lower():
+                row_to_delete = idx
+                break
+
+        if not row_to_delete:
+            await update.message.reply_text(
+                f"Budget untuk '{sub_cat_input}' tidak ditemukan."
+            )
+            return
+
+        # Hapus baris
+        budget_sheet.delete_rows(row_to_delete)
+        await update.message.reply_text(
+            f"✅ Budget '{sub_cat_input}' berhasil dihapus dari daftar."
+        )
+
+    except Exception as e:
+        await update.message.reply_text(f"Error hapus budget: {str(e)}")
+
 # ================= HANDLE PESAN UTAMA =================
 # (sudah OK, tapi timezone diubah ke zoneinfo)
 
@@ -1375,6 +1543,11 @@ app.add_handler(CommandHandler("addrecurring", add_recurring))
 app.add_handler(CommandHandler("listrecurring", list_recurring))
 app.add_handler(CommandHandler("togglerecurring", toggle_recurring))
 app.add_handler(CommandHandler("deleterecurring", delete_recurring))
+app.add_handler(CommandHandler("setbudget", set_budget))
+app.add_handler(CommandHandler("budget", budget_status))
+app.add_handler(CommandHandler("budgetstatus", budget_status))  # alias kalau mau
+app.add_handler(CommandHandler("editbudget", edit_budget))
+app.add_handler(CommandHandler("hapusbudget", hapus_budget))
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
