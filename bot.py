@@ -100,6 +100,7 @@ try:
     
     client = gspread.authorize(creds)
     spreadsheet = client.open("BOT_KEUANGAN")
+    keyword_mapping = load_keywords_mapping()
 
     category_sheet = spreadsheet.worksheet("Categories")
     account_sheet = spreadsheet.worksheet("Account")
@@ -187,6 +188,26 @@ def load_categories():
         return [{"type": r[0], "parent": r[1], "sub": r[2]} for r in data if len(r) >= 3]
     except:
         return []
+    
+def load_keywords_mapping():
+    try:
+        kw_sheet = spreadsheet.worksheet("Keywords")
+        data = kw_sheet.get_all_values()[1:]  # skip header
+        mapping = defaultdict(list)           # sub.lower() → [keyword1, keyword2, ...]
+        for row in data:
+            if len(row) >= 2:
+                sub = row[0].strip()
+                keyword = row[1].strip().lower()
+                if sub and keyword:
+                    mapping[sub.lower()].append(keyword)
+        print(f"Loaded {sum(len(v) for v in mapping.values())} keywords untuk {len(mapping)} sub-kategori")
+        return mapping
+    except gspread.exceptions.WorksheetNotFound:
+        print("Sheet 'Keywords' TIDAK DITEMUKAN → matching pakai mode standar saja")
+        return {}
+    except Exception as e:
+        print(f"Error load Keywords sheet: {e}")
+        return {}
 
 def get_budget_sheet():
     try:
@@ -1728,35 +1749,63 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Sheet Categories kosong.")
         return
 
+    # ================= PENCARIAN KATEGORI DENGAN KEYWORDS SHEET =================
+    text_lower_norm = text_lower.replace("&", " ").replace("_", " ").replace("-", " ")
+    text_lower_norm = " ".join(text_lower_norm.split())  # normalisasi spasi
+
     best_cat = None
     best_score = 0.0
+    matched_keyword = None
 
-    for cat in categories:
-        sub_lower = cat["sub"].lower()
-        
-        # Exact match di deskripsi (lebih kuat)
-        if sub_lower in text_lower:
-            best_cat = cat
-            best_score = 1.0
+    # Prioritas 1: Cocokkan keyword dari sheet Keywords (paling kuat)
+    for sub_lower, keywords in keyword_mapping.items():
+        for kw in keywords:
+            if kw in text_lower_norm:
+                # Cari sub yang cocok di categories
+                for cat in categories:
+                    if cat["sub"].strip().lower() == sub_lower:
+                        best_cat = cat
+                        best_score = 1.0
+                        matched_keyword = kw
+                        break
+                if best_cat:
+                    break
+        if best_cat:
             break
-        
-        # Fuzzy match per kata
-        for word in parts:
-            score = difflib.SequenceMatcher(None, word, sub_lower).ratio()
-            if score > best_score and score >= 0.7:  # naikkan threshold biar lebih ketat
+
+    # Prioritas 2: Jika belum ketemu, coba partial match seperti sebelumnya
+    if not best_cat:
+        for cat in categories:
+            sub_lower = cat["sub"].lower()
+            sub_norm = sub_lower.replace("&", " ").replace("_", " ").replace("-", " ")
+            sub_norm = " ".join(sub_norm.split())
+
+            # Cek apakah ada kata sub yang muncul di pesan
+            if any(word in text_lower_norm for word in sub_norm.split()) or \
+               any(word in sub_norm for word in text_lower_norm.split()):
+                best_cat = cat
+                best_score = 0.9
+                break
+
+    # Prioritas 3: Fuzzy sebagai cadangan terakhir
+    if not best_cat or best_score < 0.75:
+        for cat in categories:
+            sub_lower = cat["sub"].lower()
+            score = difflib.SequenceMatcher(None, text_lower_norm, sub_lower).ratio()
+            if score > best_score and score >= 0.68:
                 best_score = score
                 best_cat = cat
 
     if best_cat is None:
-        # Tidak ada match yang memadai → tolak langsung
         await update.message.reply_text(
-            "Maaf bro, bot gak nemu kategori yang cocok dengan pesan lu.\n\n"
-            "Contoh yang dikenali:\n"
-            "- BCA makan 25rb\n"
-            "- gopay transport 10rb\n"
-            "- spbank jajan 5rb\n"
-            "- cuci mobil 15rb (pastikan ada kata kunci yang mirip di sheet Categories)\n\n"
-            "Coba tambahin kata kunci yang lebih jelas atau tambah kategori baru di sheet Categories ya!"
+            "Maaf bro, bot gak nemu kategori yang cocok sama sekali.\n\n"
+            "Contoh input yang dikenali:\n"
+            "• BCA makan 25rb\n"
+            "• gopay jajan 15rb\n"
+            "• cash parkir 10rb\n"
+            "• spbank gaji 5jt\n\n"
+            "Pastikan pakai kata kunci yang sudah terdaftar di sheet Keywords atau Categories.\n"
+            "Kalau belum ada, owner bisa tambah via /tambahkategori"
         )
         return
 
