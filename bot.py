@@ -90,6 +90,26 @@ scope = [
     "https://www.googleapis.com/auth/drive"
 ]
 
+def load_keywords_mapping():
+    try:
+        kw_sheet = spreadsheet.worksheet("Keywords")
+        data = kw_sheet.get_all_values()[1:]  # skip header
+        mapping = defaultdict(list)           # sub.lower() → [keyword1, keyword2, ...]
+        for row in data:
+            if len(row) >= 2:
+                sub = row[0].strip()
+                keyword = row[1].strip().lower()
+                if sub and keyword:
+                    mapping[sub.lower()].append(keyword)
+        print(f"Loaded {sum(len(v) for v in mapping.values())} keywords untuk {len(mapping)} sub-kategori")
+        return mapping
+    except gspread.exceptions.WorksheetNotFound:
+        print("Sheet 'Keywords' TIDAK DITEMUKAN → matching pakai mode standar saja")
+        return {}
+    except Exception as e:
+        print(f"Error load Keywords sheet: {e}")
+        return {}
+
 try:
     google_creds_json = os.getenv("GOOGLE_CREDS")
     if not google_creds_json:
@@ -189,26 +209,6 @@ def load_categories():
     except:
         return []
     
-def load_keywords_mapping():
-    try:
-        kw_sheet = spreadsheet.worksheet("Keywords")
-        data = kw_sheet.get_all_values()[1:]  # skip header
-        mapping = defaultdict(list)           # sub.lower() → [keyword1, keyword2, ...]
-        for row in data:
-            if len(row) >= 2:
-                sub = row[0].strip()
-                keyword = row[1].strip().lower()
-                if sub and keyword:
-                    mapping[sub.lower()].append(keyword)
-        print(f"Loaded {sum(len(v) for v in mapping.values())} keywords untuk {len(mapping)} sub-kategori")
-        return mapping
-    except gspread.exceptions.WorksheetNotFound:
-        print("Sheet 'Keywords' TIDAK DITEMUKAN → matching pakai mode standar saja")
-        return {}
-    except Exception as e:
-        print(f"Error load Keywords sheet: {e}")
-        return {}
-
 def get_budget_sheet():
     try:
         return spreadsheet.worksheet("Budget")
