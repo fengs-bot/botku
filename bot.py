@@ -223,6 +223,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text("Bot aktif 24 jam 🚀 Selamat datang bro!")
 
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return
+    msg = (
+        f"Bot Status:\n"
+        f"- Running: Yes\n"
+        f"- Allowed users: {len(ALLOWED_USER_IDS)}\n"
+        f"- Keywords loaded: {sum(len(v) for v in keyword_mapping.values())} keyword\n"
+        f"- Categories loaded: {len(load_categories())}\n"
+        f"- Timezone: {wib}\n"
+        f"- Current time: {datetime.now(wib).strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+    await update.message.reply_text(msg)
+
 async def hapus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print("DEBUG: type of time:", type(time))  # harus <class 'module'>
     print("DEBUG: time.time() callable?", callable(time.time))  # harus True
