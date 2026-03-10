@@ -1883,6 +1883,7 @@ async def recurring(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("status", status))
 app.add_handler(CommandHandler("saldo", saldo))
 app.add_handler(CommandHandler("chart", chart))
 app.add_handler(CommandHandler("hapus", hapus))
