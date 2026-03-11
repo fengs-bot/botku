@@ -1773,6 +1773,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for sub_lower, keywords in keyword_mapping.items():
         for kw in keywords:
             if kw in text_lower_norm:
+                # SKIP kalau keyword ini mirip nama akun yang dipilih user
+                skip_keywords = ["cash", "tunai", "gopay", "bca", "spbank", "ovo", "dana"]
+                if account and (kw.strip().lower() == account.lower() or kw.strip().lower() in skip_keywords):
+                    continue  # lewati keyword ini, jangan dipakai untuk kategori
+
                 # Cari sub yang cocok di categories
                 for cat in categories:
                     if cat["sub"].strip().lower() == sub_lower:
