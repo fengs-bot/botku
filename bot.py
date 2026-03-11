@@ -694,73 +694,71 @@ async def chart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(traceback.format_exc())
         await update.message.reply_text(f"Error bikin chart: {str(e)}\nCoba periode lain atau cek data di sheet")
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_allowed_user(update, context):
         return
+    
+    message = "📱 **MENU BOT CATAT KEUANGAN** 🚀\n\n"
+    message += "Selamat datang bro! Ini semua command yang bisa dipakai:\n\n"
 
-    message = "📱 **Menu Lengkap Bot Catat Duit Pro**\n\n"
-
-    message += "🔹 **Cara Catat Transaksi Cepat** (tanpa command)\n"
-    message += "Cukup ketik:  akun nominal deskripsi\n"
+    message += "🔹 **Catat Transaksi Cepat** (tanpa command)\n"
+    message += "Cukup ketik: <akun> <nominal> <deskripsi>\n"
     message += "Contoh:\n"
     message += "• BCA 50rb makan\n"
-    message += "• gopay 15rb transport grab\n"
+    message += "• gopay 15rb jajan\n"
     message += "• spbank 100rb gaji\n\n"
 
     message += "🔹 **Transfer Antar Akun**\n"
     message += "transfer <dari> <nominal> ke <ke>\n"
     message += "Contoh: transfer BCA 200rb ke GOPAY\n\n"
 
-    message += "🔹 **Perintah Utama**\n"
-    message += "• /start          → Aktifkan & sambutan\n"
-    message += "• /saldo          → Cek saldo semua akun + total\n"
+    message += "🔹 **Cek Saldo & Riwayat**\n"
+    message += "• /saldo → Cek saldo semua akun + total\n"
     message += "• /riwayat <akun> → 10 transaksi terakhir akun tertentu\n"
-    message += "  Contoh: /riwayat BCA  atau  /history GOPAY\n"
-    message += "• /recent atau /riwayatterakhir → 10 transaksi terakhir dari semua akun\n"
-    message += "• /kategori <sub> → Riwayat transaksi di kategori tertentu\n"
-    message += "• /ringkasan      → Ringkasan hari ini, minggu ini, bulan ini\n"
-    message += "• /laporan        → Total income, expense, net (tahun ini)\n"
-    message += "  Tambah tahun: /laporan 2026  atau /laporan all\n"
+    message += "  Contoh: /riwayat BCA\n"
+    message += "• /recent atau /riwayatterakhir → 10 transaksi terakhir semua akun\n\n"
+
+    message += "🔹 **Ringkasan & Laporan**\n"
+    message += "• /ringkasan → Ringkasan hari ini, minggu ini, bulan ini\n"
+    message += "• /laporan → Total income, expense, net tahun ini\n"
+    message += "  Tambah tahun: /laporan 2026 atau /laporan all\n\n"
+
+    message += "🔹 **Grafik & Analisis**\n"
     message += "• /chart [periode] [tipe] [filter]\n"
     message += "  Contoh:\n"
-    message += "  • /chart 2026-03           → Bar pengeluaran Maret 2026\n"
-    message += "  • /chart 2026-03 pie       → Pie chart Maret\n"
-    message += "  • /chart 2026 line         → Trend bulanan 2026\n"
-    message += "  • /chart 2026 expenses     → Pengeluaran 2026\n"
-    message += "• /export         → Download semua transaksi tahun ini (.csv)\n"
-    message += "• /hapus <nomor>  → Hapus transaksi (konfirmasi YA)\n"
-    message += "  • /hapus terakhir → Hapus transaksi paling baru\n\n"
+    message += "  • /chart 2026-03 → Bar pengeluaran Maret 2026\n"
+    message += "  • /chart 2026-03 pie → Pie chart Maret\n"
+    message += "  • /chart 2026 line → Trend bulanan 2026\n"
+    message += "  • /chart 2026 expenses → Pengeluaran 2026\n\n"
 
-    message += "🔹 **Manajemen Kategori** (semua user bisa lihat)\n"
-    message += "• /kategori atau /daftarkategori\n"
-    message += "  → Lihat semua kategori yang dikenali bot (grouped)\n\n"
-
-    message += "🔹 **Command Owner Only** (hanya Fengky)\n"
-    message += "• /reloaduser     → Refresh daftar user dari sheet USER\n"
-    message += "• /tambahkategori <Type> <Parent> <Sub>\n"
-    message += "  Contoh: /tambahkategori Expenses Fixed_Expenses Biaya_Admin\n"
-    message += "• /editkategori <Old Sub> <New Type> <New Parent> <New Sub>\n"
-    message += "  Contoh: /editkategori Cuci Mobil Expenses Lifestyle Cuci Kendaraan\n"
-    message += "• /hapuskategori <Sub Kategori>\n"
-    message += "  Contoh: /hapuskategori Cuci Mobil\n\n"
-
-    message += "Tips:\n"
-    message += "• Nominal bisa: 50rb, 1jt, 750k, 1000000\n"
-    message += "• Kalau kategori tidak dikenali → bot akan tolak & kasih saran\n"
-    message += "• Tambah/edit/hapus kategori langsung dari Telegram (owner)\n"
-    message += "• Semua transaksi otomatis masuk sheet tahun berjalan\n\n"
-
-    message += "• /addrecurring   → Tambah recurring baru\n"
-    message += "• /listrecurring  → Lihat semua recurring\n"
-    message += "• /togglerecurring <ID> on/off → Aktif/Nonaktif\n"
-    message += "• /deleterecurring <ID> → Hapus recurring\n"
-
-    message += "• /setbudget <kategori> <nominal> → Set budget bulanan per kategori (berlaku selamanya)\n"
-    message += "• /editbudget <kategori> <nominal baru> → Ubah budget yang sudah ada\n"
-    message += "• /hapusbudget <kategori> → Hapus budget kategori tertentu\n"
+    message += "🔹 **Manajemen Kategori & Budget**\n"
+    message += "• /kategori atau /daftarkategori → Lihat semua kategori yang dikenali\n"
     message += "• /budget → Cek status budget bulan ini (terpakai vs sisa)\n"
+    message += "• /setbudget <kategori> <nominal> → Set budget bulanan\n"
+    message += "• /editbudget <kategori> <nominal baru> → Ubah budget\n"
+    message += "• /hapusbudget <kategori> → Hapus budget kategori\n\n"
 
-    message += "Kalau ada kendala atau ide fitur baru, langsung bilang aja bro! 🔥"
+    message += "🔹 **Hapus & Edit Transaksi**\n"
+    message += "• /hapus <nomor> atau /hapus terakhir → Hapus transaksi (konfirmasi YA)\n"
+    message += "• /edit <nomor baris> → Edit transaksi tertentu\n\n"
+
+    message += "🔹 **Export & Lainnya**\n"
+    message += "• /export → Download semua transaksi tahun ini (.csv)\n"
+    message += "• /status → Cek status bot (owner only)\n\n"
+
+    message += "🔹 **Fitur Owner Only (hanya Fengky)**\n"
+    message += "• /reloaduser → Refresh daftar user\n"
+    message += "• /tambahkategori <Type> <Parent> <Sub>\n"
+    message += "• /editkategori <Old Sub> <New Type> <New Parent> <New Sub>\n"
+    message += "• /hapuskategori <Sub>\n"
+    message += "• /addrecurring, /listrecurring, /togglerecurring, /deleterecurring\n\n"
+
+    message += "Tips cepat:\n"
+    message += "• Nominal bisa ditulis: 50rb, 1jt, 750k, 1000000\n"
+    message += "• Keyword pendek seperti 'makan', 'jajan', 'parkir', 'gaji' otomatis dikenali\n"
+    message += "• Kalau kategori tidak cocok → bot akan kasih tahu & saran\n\n"
+
+    message += "Ada kendala atau mau request fitur baru? Langsung bilang aja bro! 🔥"
 
     await update.message.reply_text(message, parse_mode="Markdown")
 
@@ -1888,8 +1886,8 @@ app.add_handler(CommandHandler("saldo", saldo))
 app.add_handler(CommandHandler("chart", chart))
 app.add_handler(CommandHandler("hapus", hapus))
 app.add_handler(CommandHandler("edit", edit_transaksi))
-app.add_handler(CommandHandler("help", help_command))
-app.add_handler(CommandHandler("menu", help_command))
+app.add_handler(CommandHandler("help", menu_command))
+app.add_handler(CommandHandler("menu", menu_command))
 app.add_handler(CommandHandler("laporan", laporan))
 app.add_handler(CommandHandler("ringkasan", ringkasan))
 app.add_handler(CommandHandler("riwayat", riwayat))
